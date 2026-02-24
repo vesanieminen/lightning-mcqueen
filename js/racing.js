@@ -32,7 +32,7 @@ export class CarRacer {
 
     updatePosition() {
         const t = ((this.trackProgress % 1) + 1) % 1;
-        const point = this.curve.getPoint(t);
+        const point = this.curve.getPointAt(t);
 
         const idx = Math.floor(t * 200) % 201;
         const right = this.frames.binormals[idx];
@@ -49,9 +49,9 @@ export class CarRacer {
             point.z + offset.z
         );
 
-        // Face the direction of travel
+        // Face the direction of travel, yaw nose into steering direction
         const angle = Math.atan2(tangent.x, tangent.z);
-        this.model.rotation.y = angle + this.steering * 0.15;
+        this.model.rotation.y = angle - this.steering * 0.15;
 
         // Spin wheels
         const wheels = this.model.userData.wheels;
@@ -98,6 +98,69 @@ export class CarRacer {
 
     getEffectiveDistance() {
         return this.lap + (this.trackProgress % 1);
+    }
+
+    // Resolve collisions between all racers using simple circle-based physics
+    static resolveCollisions(racers) {
+        const carRadius = 2.0; // approximate car collision radius
+        const minDist = carRadius * 2;
+
+        for (let i = 0; i < racers.length; i++) {
+            for (let j = i + 1; j < racers.length; j++) {
+                const a = racers[i];
+                const b = racers[j];
+
+                const posA = a.model.position;
+                const posB = b.model.position;
+
+                const dx = posB.x - posA.x;
+                const dz = posB.z - posA.z;
+                const dist = Math.sqrt(dx * dx + dz * dz);
+
+                if (dist < minDist && dist > 0.001) {
+                    const overlap = minDist - dist;
+                    const nx = dx / dist;
+                    const nz = dz / dist;
+
+                    // Push apart - lighter car (AI) moves more
+                    const weightA = a.isPlayer ? 0.3 : 0.5;
+                    const weightB = b.isPlayer ? 0.3 : 0.5;
+
+                    // Convert push direction to lateral offset change
+                    const t_a = ((a.trackProgress % 1) + 1) % 1;
+                    const t_b = ((b.trackProgress % 1) + 1) % 1;
+                    const idxA = Math.floor(t_a * 200) % 201;
+                    const idxB = Math.floor(t_b * 200) % 201;
+                    const rightA = a.frames.binormals[idxA];
+                    const rightB = b.frames.binormals[idxB];
+
+                    // Project push direction onto each car's right vector
+                    const lateralPushA = -(nx * rightA.x + nz * rightA.z) * overlap;
+                    const lateralPushB = (nx * rightB.x + nz * rightB.z) * overlap;
+
+                    const maxLateralA = a.roadWidth / 2 - 1.5;
+                    const maxLateralB = b.roadWidth / 2 - 1.5;
+
+                    a.lateralOffset += (lateralPushA / maxLateralA) * weightA;
+                    b.lateralOffset += (lateralPushB / maxLateralB) * weightB;
+
+                    a.lateralOffset = Math.max(-0.95, Math.min(0.95, a.lateralOffset));
+                    b.lateralOffset = Math.max(-0.95, Math.min(0.95, b.lateralOffset));
+
+                    // Speed exchange - rear car slows down, front car gets a small push
+                    const aAhead = a.getEffectiveDistance() > b.getEffectiveDistance();
+                    const frontCar = aAhead ? a : b;
+                    const rearCar = aAhead ? b : a;
+
+                    rearCar.speed *= 0.85;
+                    frontCar.speed = Math.min(frontCar.speed * 1.05, frontCar.maxSpeed);
+
+                    // Re-update positions after collision resolution
+                    a.updatePosition();
+                    b.updatePosition();
+                }
+            }
+        }
     }
 }
 

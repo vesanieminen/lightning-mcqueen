@@ -25,15 +25,15 @@ export const TRACK_DATA = [
 ];
 
 // Compute consistent track directions for a flat XZ-plane curve.
-// Replaces Three.js computeFrenetFrames which is unreliable for planar curves
-// (the binormal can flip randomly, breaking road mesh, curbs, and car positioning).
+// Uses arc-length parameterization (getTangentAt) for uniform speed across the track.
+// Replaces Three.js computeFrenetFrames which is unreliable for planar curves.
 function computeTrackFrames(curve, segments) {
     const tangents = [];
     const binormals = []; // "right" vectors perpendicular to track in XZ plane
 
     for (let i = 0; i <= segments; i++) {
         const t = i / segments;
-        const tangent = curve.getTangent(t);
+        const tangent = curve.getTangentAt(t);
         tangent.y = 0;
         tangent.normalize();
 
@@ -119,7 +119,7 @@ export function buildTrackMesh(trackData) {
 
     for (let i = 0; i <= 200; i++) {
         const t = i / 200;
-        const point = curve.getPoint(t);
+        const point = curve.getPointAt(t);
         const right = frames.binormals[i];
 
         const left = point.clone().add(right.clone().multiplyScalar(-roadWidth / 2));
@@ -156,7 +156,7 @@ export function buildTrackMesh(trackData) {
     const centerVertices = [];
     for (let i = 0; i <= 200; i++) {
         const t = i / 200;
-        const point = curve.getPoint(t);
+        const point = curve.getPointAt(t);
         centerVertices.push(point.x, 0.05, point.z);
     }
     const lineGeo = new THREE.BufferGeometry();
@@ -175,7 +175,7 @@ export function buildTrackMesh(trackData) {
 
         for (let i = 0; i <= 200; i++) {
             const t = i / 200;
-            const point = curve.getPoint(t);
+            const point = curve.getPointAt(t);
             const right = frames.binormals[i];
 
             const inner = point.clone().add(right.clone().multiplyScalar(side * (roadWidth / 2 - 0.2)));
@@ -270,7 +270,7 @@ function buildInvisibleWalls(curve, roadWidth, frames) {
 
         for (let i = 0; i <= wallSegments; i++) {
             const t = i / wallSegments;
-            const point = curve.getPoint(t);
+            const point = curve.getPointAt(t);
             const right = frames.binormals[i];
             const offset = right.clone().multiplyScalar(side * (roadWidth / 2 + 0.5));
             const base = point.clone().add(offset);
@@ -311,7 +311,7 @@ function buildDesertScenery(curve, roadWidth, frames) {
 
     for (let i = 0; i < 30; i++) {
         const t = i / 30;
-        const point = curve.getPoint(t);
+        const point = curve.getPointAt(t);
         const right = frames.binormals[Math.floor(t * 200)];
         const side = Math.random() > 0.5 ? 1 : -1;
         const distance = roadWidth / 2 + 8 + Math.random() * 30;
@@ -376,7 +376,7 @@ function buildStadiumScenery(curve, roadWidth, frames) {
 
     for (let i = 0; i < 40; i++) {
         const t = i / 40;
-        const point = curve.getPoint(t);
+        const point = curve.getPointAt(t);
         const right = frames.binormals[Math.floor(t * 200)];
         const side = i % 2 === 0 ? 1 : -1;
         const distance = roadWidth / 2 + 12;
@@ -404,7 +404,7 @@ function buildStadiumScenery(curve, roadWidth, frames) {
     const flagColors = [0xC1272D, 0xF7D417, 0x2255CC, 0x33CC33];
     for (let i = 0; i < 20; i++) {
         const t = i / 20;
-        const point = curve.getPoint(t);
+        const point = curve.getPointAt(t);
         const right = frames.binormals[Math.floor(t * 200)];
         const side = i % 2 === 0 ? 1 : -1;
         const distance = roadWidth / 2 + 3;

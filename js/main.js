@@ -272,6 +272,9 @@ class Game {
             ai.update(dt, this.raceElapsed);
         }
 
+        // Resolve car-to-car collisions
+        CarRacer.resolveCollisions(this.allRacers);
+
         // Check for lap completion / finish
         for (const racer of this.allRacers) {
             if (!racer.finished && racer.lap >= racer.totalLaps) {
