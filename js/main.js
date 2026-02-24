@@ -10,7 +10,7 @@ import {
 } from './ui.js';
 import {
     initAudio, startEngineSound, updateEngineSound, stopEngineSound,
-    playCountdownBeep, playWinSound
+    playCountdownBeep, playWinSound, playHitSound
 } from './sounds.js';
 
 // Game states
@@ -42,7 +42,7 @@ class Game {
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
         this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
+        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 800);
         this.camera.position.set(0, 20, 40);
         this.camera.lookAt(0, 0, 0);
 
@@ -316,7 +316,8 @@ class Game {
         }
 
         // Resolve car-to-car collisions
-        CarRacer.resolveCollisions(this.allRacers);
+        const hadPlayerCollision = CarRacer.resolveCollisions(this.allRacers);
+        if (hadPlayerCollision) playHitSound();
 
         // Check for lap completion / finish
         for (const racer of this.allRacers) {

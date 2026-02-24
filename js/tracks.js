@@ -24,6 +24,57 @@ export const TRACK_DATA = [
         buildTrack: buildCircuitTrack,
         buildScenery: buildStadiumScenery,
     },
+    {
+        id: 'willys',
+        name: "Willy's Butte",
+        description: 'Switchbacks through the desert canyon',
+        icon: '🏔️',
+        laps: 2,
+        roadWidth: 16,
+        maxBankAngle: 0.15,
+        groundSize: 900,
+        buildTrack: buildWillysButteTrack,
+        buildScenery: buildCanyonScenery,
+    },
+    {
+        id: 'tokyo',
+        name: 'Tokyo Sprint',
+        description: 'Tight neon-lit city streets',
+        icon: '🗼',
+        laps: 2,
+        roadWidth: 15,
+        maxBankAngle: 0.08,
+        groundSize: 800,
+        groundColor: 0x444444,
+        buildTrack: buildTokyoTrack,
+        buildScenery: buildTokyoScenery,
+    },
+    {
+        id: 'portocorsa',
+        name: 'Porto Corsa',
+        description: 'Sweeping curves along the Italian coast',
+        icon: '🏖️',
+        laps: 2,
+        roadWidth: 16,
+        maxBankAngle: 0.12,
+        groundSize: 1000,
+        groundColor: 0x3a7d2a,
+        buildTrack: buildPortoCorsaTrack,
+        buildScenery: buildPortoCorsaScenery,
+    },
+    {
+        id: 'florida',
+        name: 'Florida 500',
+        description: 'Modern speedway with a twisty infield',
+        icon: '🌴',
+        laps: 2,
+        roadWidth: 18,
+        maxBankAngle: 0.22,
+        groundSize: 900,
+        groundColor: 0x3a7d2a,
+        buildTrack: buildFlorida500Track,
+        buildScenery: buildFloridaScenery,
+    },
 ];
 
 // Compute consistent track directions for a flat XZ-plane curve.
@@ -144,6 +195,394 @@ function buildCircuitTrack() {
     addCornerCW(-(W - R), H - R, Math.PI);            // Top-left corner
 
     return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
+}
+
+// ---- NEW TRACK BUILDERS ----
+
+// Willy's Butte: Desert canyon switchbacks
+function buildWillysButteTrack() {
+    const pts = [
+        [0, 90],         // start heading east
+        [60, 95],
+        [130, 80],       // gentle right
+        [180, 50],       // curving south
+        [200, -10],      // heading south
+        [180, -70],
+        [140, -110],     // sweeping left hairpin
+        [80, -130],
+        [20, -120],      // heading back west
+        [-30, -90],
+        [-50, -50],      // chicane north
+        [-80, -20],
+        [-120, -40],     // S-curve southward
+        [-150, -80],
+        [-190, -120],    // long left-hand sweeper
+        [-230, -130],
+        [-270, -100],
+        [-290, -50],     // heading north through canyon
+        [-280, 10],
+        [-250, 60],      // right-hand curve
+        [-210, 90],
+        [-160, 100],     // straight heading east
+        [-100, 95],
+        [-50, 100],      // gentle S back to start
+    ];
+
+    const points = pts.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
+}
+
+// Tokyo Sprint: Tight city grid with chicanes
+function buildTokyoTrack() {
+    const pts = [
+        [0, 100],         // start straight heading east
+        [60, 100],
+        [120, 95],
+        [160, 70],        // right 90° heading south
+        [165, 30],
+        [160, -20],       // long straight south
+        [155, -70],
+        [130, -110],      // left 90° heading east
+        [170, -120],
+        [210, -115],      // chicane right-left
+        [230, -90],
+        [220, -60],
+        [230, -30],       // hard right heading south
+        [235, 10],
+        [220, 50],        // left hairpin heading north then west
+        [190, 70],
+        [150, 60],
+        [110, 30],        // heading west-southwest
+        [70, 10],
+        [30, -10],        // S-curve section
+        [-10, 10],
+        [-50, 30],
+        [-80, 60],        // sweeping left heading north
+        [-90, 90],
+        [-70, 110],       // final right back to start
+        [-30, 105],
+    ];
+
+    const points = pts.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
+}
+
+// Porto Corsa: Sweeping Italian coastal road
+function buildPortoCorsaTrack() {
+    const pts = [
+        [0, 120],          // start on coastal straight
+        [70, 125],
+        [140, 110],        // gentle right along coast
+        [200, 80],
+        [240, 40],         // sweeping right down the hill
+        [260, -10],
+        [250, -70],
+        [220, -120],       // long left hairpin (harbor turn)
+        [170, -150],
+        [110, -155],
+        [50, -140],        // heading back west along waterfront
+        [0, -110],
+        [-50, -90],
+        [-100, -100],      // gentle S-curve
+        [-150, -130],
+        [-200, -140],      // wide right sweeper
+        [-250, -120],
+        [-280, -80],
+        [-290, -30],       // climbing back north
+        [-280, 30],
+        [-250, 80],        // left-hand uphill sweeper
+        [-210, 110],
+        [-160, 120],
+        [-100, 125],       // long straight back to start
+        [-50, 122],
+    ];
+
+    const points = pts.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
+}
+
+// Florida 500: Tri-oval speedway with infield twists
+function buildFlorida500Track() {
+    const pts = [
+        [0, 100],          // start/finish straight heading east
+        [60, 100],
+        [120, 95],
+        [170, 80],         // turn 1 (banked right)
+        [200, 50],
+        [210, 10],
+        [200, -30],        // turn 2 (banked right)
+        [170, -60],
+        [130, -70],        // short straight
+        [90, -65],
+        [60, -50],         // dive into infield
+        [40, -20],         // tight left in infield
+        [20, 10],
+        [40, 40],          // chicane right
+        [70, 50],
+        [60, 20],          // tight left
+        [30, -10],
+        [0, -30],          // infield hairpin
+        [-30, -20],
+        [-40, 20],         // climbing back out to oval
+        [-30, 60],
+        [-50, 90],         // turn 3 (banked right onto back straight)
+        [-80, 110],
+        [-120, 115],       // long back straight heading west
+        [-180, 112],
+        [-230, 105],
+        [-260, 90],        // turn 4 (wide banked right)
+        [-275, 60],
+        [-265, 30],
+        [-240, 10],        // short straight heading east back to tri-oval
+        [-200, 15],
+        [-160, 30],
+        [-130, 55],        // back onto front straight
+        [-100, 80],
+        [-60, 95],
+    ];
+
+    const points = pts.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
+}
+
+// Helper: check if a position is too close to any part of the road
+// Samples the curve at intervals and rejects positions within minClearance of the road center
+function isTooCloseToRoad(pos, curve, minClearance, samples = 50) {
+    for (let i = 0; i < samples; i++) {
+        const pt = curve.getPointAt(i / samples);
+        const dx = pos.x - pt.x;
+        const dz = pos.z - pt.z;
+        if (dx * dx + dz * dz < minClearance * minClearance) return true;
+    }
+    return false;
+}
+
+// Place scenery objects with road-safety checks
+function placeScenery(count, curve, frames, roadWidth, minDist, maxDist, createFn) {
+    const clearance = roadWidth / 2 + minDist;
+    const placed = [];
+    let attempts = 0;
+    while (placed.length < count && attempts < count * 4) {
+        attempts++;
+        const t = placed.length / count + (Math.random() * 0.5 / count);
+        const tClamped = ((t % 1) + 1) % 1;
+        const point = curve.getPointAt(tClamped);
+        const idx = Math.floor(tClamped * 200) % 201;
+        const right = frames.binormals[idx];
+        const side = attempts % 2 === 0 ? 1 : -1;
+        const dist = roadWidth / 2 + minDist + Math.random() * maxDist;
+        const pos = point.clone().add(right.clone().multiplyScalar(side * dist));
+
+        // Verify this position is actually clear of the road (important on winding tracks)
+        if (isTooCloseToRoad(pos, curve, clearance)) continue;
+
+        const obj = createFn(pos);
+        if (obj) placed.push(obj);
+    }
+    return placed;
+}
+
+// ---- NEW SCENERY BUILDERS ----
+
+function buildCanyonScenery(curve, roadWidth, frames) {
+    const scenery = new THREE.Group();
+
+    // Tall canyon walls (red/orange rock formations lining the track)
+    const rockColors = [0xCC5533, 0xBB4422, 0xAA3311, 0xDD6644, 0xC44820];
+    placeScenery(60, curve, frames, roadWidth, 15, 30, (pos) => {
+        const height = 8 + Math.random() * 20;
+        const width = 4 + Math.random() * 8;
+        const geo = new THREE.CylinderGeometry(width * 0.5, width, height, 5 + Math.floor(Math.random() * 4));
+        const mat = new THREE.MeshLambertMaterial({ color: rockColors[Math.floor(Math.random() * rockColors.length)] });
+        const rock = new THREE.Mesh(geo, mat);
+        rock.position.set(pos.x, height / 2, pos.z);
+        rock.rotation.y = Math.random() * Math.PI;
+        rock.castShadow = true;
+        scenery.add(rock);
+        return rock;
+    });
+
+    // Cacti
+    const cactusMat = new THREE.MeshLambertMaterial({ color: 0x2d5a27 });
+    placeScenery(40, curve, frames, roadWidth, 8, 40, (pos) => {
+        const geo = new THREE.CylinderGeometry(0.25, 0.35, 2 + Math.random() * 3, 6);
+        const cactus = new THREE.Mesh(geo, cactusMat);
+        cactus.position.set(pos.x, 1.5, pos.z);
+        scenery.add(cactus);
+        return cactus;
+    });
+
+    // Sky + sun
+    const skyGeo = new THREE.SphereGeometry(420, 32, 16);
+    const skyMat = new THREE.MeshBasicMaterial({ color: 0xE8A050, side: THREE.BackSide }); // warm sunset
+    scenery.add(new THREE.Mesh(skyGeo, skyMat));
+
+    const sunGeo = new THREE.SphereGeometry(12, 16, 16);
+    const sunMat = new THREE.MeshBasicMaterial({ color: 0xFFCC44 });
+    const sun = new THREE.Mesh(sunGeo, sunMat);
+    sun.position.set(150, 250, -150);
+    scenery.add(sun);
+
+    return scenery;
+}
+
+function buildTokyoScenery(curve, roadWidth, frames) {
+    const scenery = new THREE.Group();
+
+    // Neon-colored city buildings
+    const buildingColors = [0x3344AA, 0xAA2255, 0x22AA66, 0x8833CC, 0xCC6622, 0x2288CC];
+    placeScenery(70, curve, frames, roadWidth, 14, 20, (pos) => {
+        const height = 6 + Math.random() * 18;
+        const width = 3 + Math.random() * 5;
+        const depth = 3 + Math.random() * 5;
+        const geo = new THREE.BoxGeometry(width, height, depth);
+        const color = buildingColors[Math.floor(Math.random() * buildingColors.length)];
+        const mat = new THREE.MeshLambertMaterial({ color });
+        const building = new THREE.Mesh(geo, mat);
+        building.position.set(pos.x, height / 2, pos.z);
+        building.rotation.y = Math.random() * Math.PI;
+        building.castShadow = true;
+        scenery.add(building);
+
+        // Neon accent strip on some buildings
+        if (Math.random() > 0.5) {
+            const stripGeo = new THREE.BoxGeometry(width + 0.1, 0.3, depth + 0.1);
+            const stripMat = new THREE.MeshBasicMaterial({ color: 0xFF2266 });
+            const strip = new THREE.Mesh(stripGeo, stripMat);
+            strip.position.set(pos.x, height * 0.7, pos.z);
+            strip.rotation.y = building.rotation.y;
+            scenery.add(strip);
+        }
+        return building;
+    });
+
+    // Night sky
+    const skyGeo = new THREE.SphereGeometry(380, 32, 16);
+    const skyMat = new THREE.MeshBasicMaterial({ color: 0x111133, side: THREE.BackSide });
+    scenery.add(new THREE.Mesh(skyGeo, skyMat));
+
+    return scenery;
+}
+
+function buildPortoCorsaScenery(curve, roadWidth, frames) {
+    const scenery = new THREE.Group();
+
+    // Mediterranean buildings
+    const houseColors = [0xF5E6C8, 0xE8D4AA, 0xFFF8DC, 0xD4A76A, 0xF0C890];
+    const roofColors = [0xCC5533, 0xBB4422, 0xAA5544];
+    placeScenery(50, curve, frames, roadWidth, 14, 25, (pos) => {
+        const height = 4 + Math.random() * 6;
+        const width = 3 + Math.random() * 4;
+        const houseGeo = new THREE.BoxGeometry(width, height, width);
+        const houseMat = new THREE.MeshLambertMaterial({ color: houseColors[Math.floor(Math.random() * houseColors.length)] });
+        const house = new THREE.Mesh(houseGeo, houseMat);
+        house.position.set(pos.x, height / 2, pos.z);
+        house.rotation.y = Math.random() * Math.PI;
+        house.castShadow = true;
+        scenery.add(house);
+
+        const roofGeo = new THREE.ConeGeometry(width * 0.8, 2, 4);
+        const roofMat = new THREE.MeshLambertMaterial({ color: roofColors[Math.floor(Math.random() * roofColors.length)] });
+        const roof = new THREE.Mesh(roofGeo, roofMat);
+        roof.position.set(pos.x, height + 1, pos.z);
+        roof.rotation.y = Math.PI / 4;
+        scenery.add(roof);
+        return house;
+    });
+
+    // Palm trees
+    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x8B6914 });
+    const leafMat = new THREE.MeshLambertMaterial({ color: 0x228B22, side: THREE.DoubleSide });
+    placeScenery(30, curve, frames, roadWidth, 8, 25, (pos) => {
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 5, 6), trunkMat);
+        trunk.position.set(pos.x, 2.5, pos.z);
+        scenery.add(trunk);
+
+        for (let l = 0; l < 5; l++) {
+            const leaf = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.6), leafMat);
+            leaf.position.set(pos.x, 5.2, pos.z);
+            leaf.rotation.y = (l / 5) * Math.PI * 2;
+            leaf.rotation.x = -0.4;
+            scenery.add(leaf);
+        }
+        return trunk;
+    });
+
+    // Water plane (ocean on one side)
+    const waterGeo = new THREE.PlaneGeometry(1000, 400);
+    const waterMat = new THREE.MeshLambertMaterial({ color: 0x2277AA, transparent: true, opacity: 0.85 });
+    const water = new THREE.Mesh(waterGeo, waterMat);
+    water.rotation.x = -Math.PI / 2;
+    water.position.set(0, -0.2, -250);
+    scenery.add(water);
+
+    // Sky
+    const skyGeo = new THREE.SphereGeometry(480, 32, 16);
+    const skyMat = new THREE.MeshBasicMaterial({ color: 0x6BB8E8, side: THREE.BackSide });
+    scenery.add(new THREE.Mesh(skyGeo, skyMat));
+
+    const sunGeo = new THREE.SphereGeometry(10, 16, 16);
+    const sunMat = new THREE.MeshBasicMaterial({ color: 0xFFEE88 });
+    const sun = new THREE.Mesh(sunGeo, sunMat);
+    sun.position.set(-200, 280, 100);
+    scenery.add(sun);
+
+    return scenery;
+}
+
+function buildFloridaScenery(curve, roadWidth, frames) {
+    const scenery = new THREE.Group();
+
+    // Modern grandstands
+    const standColors = [0x6688AA, 0x557799, 0x778899];
+    placeScenery(50, curve, frames, roadWidth, 15, 15, (pos) => {
+        const height = 5 + Math.random() * 10;
+        const geo = new THREE.BoxGeometry(5, height, 5);
+        const mat = new THREE.MeshLambertMaterial({ color: standColors[Math.floor(Math.random() * standColors.length)] });
+        const stand = new THREE.Mesh(geo, mat);
+        stand.position.set(pos.x, height / 2, pos.z);
+        stand.castShadow = true;
+        scenery.add(stand);
+        return stand;
+    });
+
+    // Palm trees
+    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x8B6914 });
+    const leafMat = new THREE.MeshLambertMaterial({ color: 0x228B22, side: THREE.DoubleSide });
+    placeScenery(25, curve, frames, roadWidth, 8, 30, (pos) => {
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 6, 6), trunkMat);
+        trunk.position.set(pos.x, 3, pos.z);
+        scenery.add(trunk);
+
+        for (let l = 0; l < 5; l++) {
+            const leaf = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.6), leafMat);
+            leaf.position.set(pos.x, 6.2, pos.z);
+            leaf.rotation.y = (l / 5) * Math.PI * 2;
+            leaf.rotation.x = -0.4;
+            scenery.add(leaf);
+        }
+        return trunk;
+    });
+
+    // Flags (thin poles are fine close to the road)
+    const flagColors = [0xCC2244, 0x2244CC, 0xFFCC00, 0x22CC44];
+    placeScenery(24, curve, frames, roadWidth, 4, 2, (pos) => {
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 5, 6), new THREE.MeshLambertMaterial({ color: 0x999999 }));
+        pole.position.set(pos.x, 2.5, pos.z);
+        scenery.add(pole);
+
+        const flag = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.04), new THREE.MeshLambertMaterial({ color: flagColors[Math.floor(Math.random() * flagColors.length)] }));
+        flag.position.set(pos.x + 0.6, 4.8, pos.z);
+        scenery.add(flag);
+        return pole;
+    });
+
+    // Sky
+    const skyGeo = new THREE.SphereGeometry(420, 32, 16);
+    const skyMat = new THREE.MeshBasicMaterial({ color: 0x66AADD, side: THREE.BackSide });
+    scenery.add(new THREE.Mesh(skyGeo, skyMat));
+
+    return scenery;
 }
 
 // Build the 3D road mesh and walls for a track
@@ -289,9 +728,11 @@ export function buildTrackMesh(trackData) {
     checker.rotation.y = angle;
     group.add(checker);
 
-    // Ground plane
-    const groundGeo = new THREE.PlaneGeometry(600, 600);
-    const groundMat = new THREE.MeshLambertMaterial({ color: 0xC4A86B });
+    // Ground plane - size based on track extents
+    const groundSize = trackData.groundSize || 600;
+    const groundColor = trackData.groundColor || 0xC4A86B;
+    const groundGeo = new THREE.PlaneGeometry(groundSize, groundSize);
+    const groundMat = new THREE.MeshLambertMaterial({ color: groundColor });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.01;
@@ -360,14 +801,7 @@ function buildDesertScenery(curve, roadWidth, frames) {
     const cactusMat = new THREE.MeshLambertMaterial({ color: 0x2d5a27 });
     const cactusArmGeo = new THREE.CylinderGeometry(0.2, 0.25, 2, 8);
 
-    for (let i = 0; i < 30; i++) {
-        const t = i / 30;
-        const point = curve.getPointAt(t);
-        const right = frames.binormals[Math.floor(t * 200)];
-        const side = Math.random() > 0.5 ? 1 : -1;
-        const distance = roadWidth / 2 + 8 + Math.random() * 30;
-        const pos = point.clone().add(right.clone().multiplyScalar(side * distance));
-
+    placeScenery(30, curve, frames, roadWidth, 8, 30, (pos) => {
         const cactus = new THREE.Mesh(cactusGeo, cactusMat);
         cactus.position.set(pos.x, 2, pos.z);
         cactus.castShadow = true;
@@ -379,9 +813,10 @@ function buildDesertScenery(curve, roadWidth, frames) {
             arm.rotation.z = Math.PI / 3;
             scenery.add(arm);
         }
-    }
+        return cactus;
+    });
 
-    // Red rock formations
+    // Red rock formations (placed far from track so safe)
     const rockColors = [0xCC5533, 0xBB4422, 0xAA3311, 0xDD6644];
     for (let i = 0; i < 15; i++) {
         const angle = (i / 15) * Math.PI * 2;
@@ -425,14 +860,7 @@ function buildStadiumScenery(curve, roadWidth, frames) {
     const standMat = new THREE.MeshLambertMaterial({ color: 0x555577 });
     const standAccentMat = new THREE.MeshLambertMaterial({ color: 0xC1272D });
 
-    for (let i = 0; i < 40; i++) {
-        const t = i / 40;
-        const point = curve.getPointAt(t);
-        const right = frames.binormals[Math.floor(t * 200)];
-        const side = i % 2 === 0 ? 1 : -1;
-        const distance = roadWidth / 2 + 12;
-        const pos = point.clone().add(right.clone().multiplyScalar(side * distance));
-
+    placeScenery(40, curve, frames, roadWidth, 12, 6, (pos) => {
         const height = 8 + Math.random() * 4;
         const standGeo = new THREE.BoxGeometry(6, height, 6);
         const mat = Math.random() > 0.7 ? standAccentMat : standMat;
@@ -440,7 +868,8 @@ function buildStadiumScenery(curve, roadWidth, frames) {
         stand.position.set(pos.x, height / 2, pos.z);
         stand.castShadow = true;
         scenery.add(stand);
-    }
+        return stand;
+    });
 
     // Green ground (grass)
     const grassGeo = new THREE.PlaneGeometry(600, 600);
@@ -453,14 +882,7 @@ function buildStadiumScenery(curve, roadWidth, frames) {
 
     // Flags and banners
     const flagColors = [0xC1272D, 0xF7D417, 0x2255CC, 0x33CC33];
-    for (let i = 0; i < 20; i++) {
-        const t = i / 20;
-        const point = curve.getPointAt(t);
-        const right = frames.binormals[Math.floor(t * 200)];
-        const side = i % 2 === 0 ? 1 : -1;
-        const distance = roadWidth / 2 + 3;
-        const pos = point.clone().add(right.clone().multiplyScalar(side * distance));
-
+    placeScenery(20, curve, frames, roadWidth, 4, 2, (pos) => {
         const poleGeo = new THREE.CylinderGeometry(0.1, 0.1, 6, 6);
         const poleMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
         const pole = new THREE.Mesh(poleGeo, poleMat);
@@ -468,11 +890,12 @@ function buildStadiumScenery(curve, roadWidth, frames) {
         scenery.add(pole);
 
         const flagGeo = new THREE.BoxGeometry(1.5, 1, 0.05);
-        const flagMat = new THREE.MeshLambertMaterial({ color: flagColors[i % flagColors.length] });
+        const flagMat = new THREE.MeshLambertMaterial({ color: flagColors[Math.floor(Math.random() * flagColors.length)] });
         const flag = new THREE.Mesh(flagGeo, flagMat);
         flag.position.set(pos.x + 0.8, 5.5, pos.z);
         scenery.add(flag);
-    }
+        return pole;
+    });
 
     // Sky
     const skyGeo = new THREE.SphereGeometry(280, 32, 16);

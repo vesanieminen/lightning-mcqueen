@@ -72,6 +72,63 @@ export function playCountdownBeep(isGo = false) {
     osc.stop(ctx.currentTime + 0.3);
 }
 
+// Car collision hit sound - metallic clang
+let lastHitTime = 0;
+export function playHitSound() {
+    const ctx = getCtx();
+    const now = ctx.currentTime;
+    // Debounce: don't play more than once per 200ms
+    if (now - lastHitTime < 0.2) return;
+    lastHitTime = now;
+
+    // Metallic impact: mix of noise burst + low thump + high ping
+    // Noise burst (crash texture)
+    const bufferSize = ctx.sampleRate * 0.08;
+    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const noiseData = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+        noiseData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 3);
+    }
+    const noiseSource = ctx.createBufferSource();
+    noiseSource.buffer = noiseBuffer;
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.value = 0.15;
+    const noiseFilter = ctx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.value = 2000;
+    noiseFilter.Q.value = 1.5;
+    noiseSource.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(ctx.destination);
+    noiseSource.start(now);
+    noiseSource.stop(now + 0.08);
+
+    // Low thump
+    const thump = ctx.createOscillator();
+    const thumpGain = ctx.createGain();
+    thump.type = 'sine';
+    thump.frequency.value = 120;
+    thump.frequency.exponentialRampToValueAtTime(60, now + 0.1);
+    thumpGain.gain.setValueAtTime(0.2, now);
+    thumpGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+    thump.connect(thumpGain);
+    thumpGain.connect(ctx.destination);
+    thump.start(now);
+    thump.stop(now + 0.15);
+
+    // High metallic ping
+    const ping = ctx.createOscillator();
+    const pingGain = ctx.createGain();
+    ping.type = 'triangle';
+    ping.frequency.value = 1800;
+    pingGain.gain.setValueAtTime(0.08, now);
+    pingGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    ping.connect(pingGain);
+    pingGain.connect(ctx.destination);
+    ping.start(now);
+    ping.stop(now + 0.12);
+}
+
 // Win fanfare
 export function playWinSound() {
     const ctx = getCtx();

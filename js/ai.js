@@ -8,7 +8,7 @@ export class AIDriver {
         this.wobbleAmplitude = 0.3 + Math.random() * 0.4;
 
         // Each AI has slightly different behavior
-        this.speedFactor = 0.6 + Math.random() * 0.25; // 60-85% of max speed
+        this.speedFactor = 0.78 + Math.random() * 0.07; // 78-85% of player max speed
         this.reactionDelay = 0.5 + Math.random() * 0.5;
 
         // Target lane position
@@ -27,8 +27,9 @@ export class AIDriver {
         const racer = this.racer;
         const step = dt * 60; // normalize to 60fps
 
-        // Cap AI speed to be slower than player
-        racer.maxSpeed = racer.isPlayer ? 0.0012 : (0.0009 * this.speedFactor);
+        // Cap AI speed to ~85% of player max speed (normalized by track length)
+        const speedScale = 565 / racer.curveLength;
+        racer.maxSpeed = 0.0012 * this.speedFactor * speedScale;
 
         // Periodic slowdowns
         this.slowdownTimer += dt;

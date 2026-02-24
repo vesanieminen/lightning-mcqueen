@@ -24,11 +24,13 @@ export class CarRacer {
         this.trackProgress = startOffset;
         this.lateralOffset = 0; // -1 to 1, position across the road
 
-        // Speed and steering
+        // Speed and steering — normalize by track length so world-space speed is consistent
+        // Reference: original oval is ~565 world units
+        const speedScale = 565 / this.curveLength;
         this.speed = 0;
-        this.maxSpeed = isPlayer ? 0.0012 : 0.0009;
-        this.acceleration = isPlayer ? 0.00003 : 0.00002;
-        this.steerSpeed = isPlayer ? 0.035 : 0.02;
+        this.maxSpeed = (isPlayer ? 0.0012 : 0.00102) * speedScale;
+        this.acceleration = (isPlayer ? 0.00003 : 0.000025) * speedScale;
+        this.steerSpeed = isPlayer ? 0.035 : 0.03;
         this.steering = 0;
 
         // Lap tracking
@@ -228,9 +230,11 @@ export class CarRacer {
     }
 
     // Resolve collisions between all racers using OBB physics
+    // Returns true if the player car was involved in a collision
     static resolveCollisions(racers) {
         // Reset collision flag for debug coloring
         for (const r of racers) r.colliding = false;
+        let playerHit = false;
 
         for (let i = 0; i < racers.length; i++) {
             for (let j = i + 1; j < racers.length; j++) {
@@ -248,6 +252,7 @@ export class CarRacer {
 
                 a.colliding = true;
                 b.colliding = true;
+                if (a.isPlayer || b.isPlayer) playerHit = true;
 
                 const { overlap, nx, nz } = hit;
 
@@ -310,6 +315,8 @@ export class CarRacer {
                 r._setDebugColor(r.colliding ? 0xff0000 : 0x00ff00);
             }
         }
+
+        return playerHit;
     }
 }
 
