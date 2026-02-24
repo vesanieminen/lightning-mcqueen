@@ -52,11 +52,15 @@ class Game {
         // Resize handler
         window.addEventListener('resize', () => this.onResize());
 
-        // Pause key handler
+        // Pause key + debug toggle handler
         this._onPauseKey = (e) => {
             if (e.key === 'Escape') {
                 if (this.state === STATES.RACING) this.pause();
                 else if (this.state === STATES.PAUSED) this.resume();
+            }
+            if (e.key === 'F3' && this.allRacers.length > 0) {
+                e.preventDefault();
+                CarRacer.toggleDebug(this.allRacers);
             }
         };
         window.addEventListener('keydown', this._onPauseKey);

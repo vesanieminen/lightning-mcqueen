@@ -1,13 +1,23 @@
 import * as THREE from 'three';
 
+// Collision half-extents matching the car model geometry
+const CAR_HALF_WIDTH = 1.1;   // ~body 2.0 + wheel overhang
+const CAR_HALF_LENGTH = 2.1;  // ~body 4.0 / 2 + bumper clearance
+
 // Racing state for a single car (player or AI)
 export class CarRacer {
+    static debugColliders = false;
+
     constructor(carModel, curve, frames, roadWidth, startOffset, isPlayer = false) {
         this.model = carModel;
         this.curve = curve;
         this.frames = frames;
         this.roadWidth = roadWidth;
         this.isPlayer = isPlayer;
+        this.colliding = false;
+
+        // Create debug collider wireframe (hidden by default)
+        this._createDebugCollider();
 
         // Progress along the track (0 to 1, wraps around)
         this.trackProgress = startOffset;
@@ -34,9 +44,20 @@ export class CarRacer {
         const t = ((this.trackProgress % 1) + 1) % 1;
         const point = this.curve.getPointAt(t);
 
-        const idx = Math.floor(t * 200) % 201;
-        const right = this.frames.binormals[idx];
-        const tangent = this.frames.tangents[idx];
+        // Interpolate between frame indices for smooth transitions
+        const rawIdx = t * 200;
+        const idx0 = Math.floor(rawIdx) % 201;
+        const idx1 = (idx0 + 1) % 201;
+        const frac = rawIdx - Math.floor(rawIdx);
+
+        // Lerp right vector and tangent between adjacent frames
+        const right = this.frames.binormals[idx0].clone().lerp(this.frames.binormals[idx1], frac);
+        const tangent = this.frames.tangents[idx0].clone().lerp(this.frames.tangents[idx1], frac);
+
+        // Interpolate bank angle
+        const bank0 = this.frames.bankAngles ? this.frames.bankAngles[idx0] : 0;
+        const bank1 = this.frames.bankAngles ? this.frames.bankAngles[idx1] : 0;
+        const bankAngle = bank0 + (bank1 - bank0) * frac;
 
         // Apply lateral offset (right vector points to the right of travel direction)
         const maxLateral = this.roadWidth / 2 - 1.5;
@@ -44,7 +65,6 @@ export class CarRacer {
         const offset = right.clone().multiplyScalar(lateralPos);
 
         // Banking: tilt car and adjust Y position based on road bank angle
-        const bankAngle = this.frames.bankAngles ? this.frames.bankAngles[idx] : 0;
         const maxLateralWorld = this.roadWidth / 2 - 1.5;
         const lateralWorld = this.lateralOffset * maxLateralWorld;
         // bankLift raises the road center at banked sections so the low side stays above ground
@@ -122,65 +142,150 @@ export class CarRacer {
         return this.lap + (this.trackProgress % 1);
     }
 
-    // Resolve collisions between all racers using simple circle-based physics
+    // Create a wireframe box showing the collision bounds (child of car model)
+    _createDebugCollider() {
+        const geo = new THREE.BoxGeometry(CAR_HALF_WIDTH * 2, 0.8, CAR_HALF_LENGTH * 2);
+        const edges = new THREE.EdgesGeometry(geo);
+        const mat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+        this._debugWire = new THREE.LineSegments(edges, mat);
+        this._debugWire.position.y = 0.6; // center on car body
+        this._debugWire.visible = CarRacer.debugColliders;
+        this.model.add(this._debugWire);
+    }
+
+    _setDebugColor(hex) {
+        if (this._debugWire) this._debugWire.material.color.setHex(hex);
+    }
+
+    static toggleDebug(racers) {
+        CarRacer.debugColliders = !CarRacer.debugColliders;
+        for (const r of racers) {
+            if (r._debugWire) r._debugWire.visible = CarRacer.debugColliders;
+        }
+    }
+
+    // OBB vs OBB collision test using the Separating Axis Theorem (2D in XZ plane)
+    // Returns { overlap, nx, nz } if colliding, or null if separated.
+    static _obbTest(a, b) {
+        const angleA = a.model.rotation.y;
+        const angleB = b.model.rotation.y;
+
+        // Each car's local axes in world XZ space
+        // Forward (local +Z) and Right (local +X)
+        const fwdA = { x: Math.sin(angleA), z: Math.cos(angleA) };
+        const rgtA = { x: Math.cos(angleA), z: -Math.sin(angleA) };
+        const fwdB = { x: Math.sin(angleB), z: Math.cos(angleB) };
+        const rgtB = { x: Math.cos(angleB), z: -Math.sin(angleB) };
+
+        // Half-extents: forward = halfLength, right = halfWidth
+        const hL = CAR_HALF_LENGTH;
+        const hW = CAR_HALF_WIDTH;
+
+        const dx = b.model.position.x - a.model.position.x;
+        const dz = b.model.position.z - a.model.position.z;
+
+        // Test 4 separating axes (2 per box)
+        const axes = [fwdA, rgtA, fwdB, rgtB];
+        let minOverlap = Infinity;
+        let minAxis = null;
+
+        for (const ax of axes) {
+            // Project center-to-center distance onto this axis
+            const dist = Math.abs(dx * ax.x + dz * ax.z);
+
+            // Project both boxes' half-extents onto this axis
+            const projA = hL * Math.abs(fwdA.x * ax.x + fwdA.z * ax.z) +
+                          hW * Math.abs(rgtA.x * ax.x + rgtA.z * ax.z);
+            const projB = hL * Math.abs(fwdB.x * ax.x + fwdB.z * ax.z) +
+                          hW * Math.abs(rgtB.x * ax.x + rgtB.z * ax.z);
+
+            const overlap = projA + projB - dist;
+            if (overlap <= 0) return null; // separated on this axis
+
+            if (overlap < minOverlap) {
+                minOverlap = overlap;
+                minAxis = ax;
+            }
+        }
+
+        // Collision detected — ensure push direction points from A to B
+        const sign = (dx * minAxis.x + dz * minAxis.z) >= 0 ? 1 : -1;
+        return {
+            overlap: minOverlap,
+            nx: minAxis.x * sign,
+            nz: minAxis.z * sign,
+        };
+    }
+
+    // Resolve collisions between all racers using OBB physics
     static resolveCollisions(racers) {
-        const carRadius = 2.0; // approximate car collision radius
-        const minDist = carRadius * 2;
+        // Reset collision flag for debug coloring
+        for (const r of racers) r.colliding = false;
 
         for (let i = 0; i < racers.length; i++) {
             for (let j = i + 1; j < racers.length; j++) {
                 const a = racers[i];
                 const b = racers[j];
 
-                const posA = a.model.position;
-                const posB = b.model.position;
+                // Quick circle pre-check (skip if too far for any possible overlap)
+                const dx = b.model.position.x - a.model.position.x;
+                const dz = b.model.position.z - a.model.position.z;
+                const maxReach = CAR_HALF_LENGTH * 2 + 1;
+                if (dx * dx + dz * dz > maxReach * maxReach) continue;
 
-                const dx = posB.x - posA.x;
-                const dz = posB.z - posA.z;
-                const dist = Math.sqrt(dx * dx + dz * dz);
+                const hit = CarRacer._obbTest(a, b);
+                if (!hit) continue;
 
-                if (dist < minDist && dist > 0.001) {
-                    const overlap = minDist - dist;
-                    const nx = dx / dist;
-                    const nz = dz / dist;
+                a.colliding = true;
+                b.colliding = true;
 
-                    // Push apart - lighter car (AI) moves more
-                    const weightA = a.isPlayer ? 0.3 : 0.5;
-                    const weightB = b.isPlayer ? 0.3 : 0.5;
+                const { overlap, nx, nz } = hit;
 
-                    // Convert push direction to lateral offset change
-                    const t_a = ((a.trackProgress % 1) + 1) % 1;
-                    const t_b = ((b.trackProgress % 1) + 1) % 1;
-                    const idxA = Math.floor(t_a * 200) % 201;
-                    const idxB = Math.floor(t_b * 200) % 201;
-                    const rightA = a.frames.binormals[idxA];
-                    const rightB = b.frames.binormals[idxB];
+                // Push apart - player is heavier
+                const weightA = a.isPlayer ? 0.3 : 0.5;
+                const weightB = b.isPlayer ? 0.3 : 0.5;
 
-                    // Project push direction onto each car's right vector
-                    const lateralPushA = -(nx * rightA.x + nz * rightA.z) * overlap;
-                    const lateralPushB = (nx * rightB.x + nz * rightB.z) * overlap;
+                // Convert push direction to lateral offset change
+                const t_a = ((a.trackProgress % 1) + 1) % 1;
+                const t_b = ((b.trackProgress % 1) + 1) % 1;
+                const rawA = t_a * 200;
+                const rawB = t_b * 200;
+                const idxA = Math.floor(rawA) % 201;
+                const idxB = Math.floor(rawB) % 201;
+                const rightA = a.frames.binormals[idxA];
+                const rightB = b.frames.binormals[idxB];
 
-                    const maxLateralA = a.roadWidth / 2 - 1.5;
-                    const maxLateralB = b.roadWidth / 2 - 1.5;
+                // Project push direction onto each car's right vector
+                const lateralPushA = -(nx * rightA.x + nz * rightA.z) * overlap;
+                const lateralPushB = (nx * rightB.x + nz * rightB.z) * overlap;
 
-                    a.lateralOffset += (lateralPushA / maxLateralA) * weightA;
-                    b.lateralOffset += (lateralPushB / maxLateralB) * weightB;
+                const maxLateralA = a.roadWidth / 2 - 1.5;
+                const maxLateralB = b.roadWidth / 2 - 1.5;
 
-                    a.lateralOffset = Math.max(-0.95, Math.min(0.95, a.lateralOffset));
-                    b.lateralOffset = Math.max(-0.95, Math.min(0.95, b.lateralOffset));
+                a.lateralOffset += (lateralPushA / maxLateralA) * weightA;
+                b.lateralOffset += (lateralPushB / maxLateralB) * weightB;
 
-                    // Speed exchange - rear car slows down, front car gets a small push
-                    const aAhead = a.getEffectiveDistance() > b.getEffectiveDistance();
-                    const frontCar = aAhead ? a : b;
-                    const rearCar = aAhead ? b : a;
+                a.lateralOffset = Math.max(-0.95, Math.min(0.95, a.lateralOffset));
+                b.lateralOffset = Math.max(-0.95, Math.min(0.95, b.lateralOffset));
 
-                    rearCar.speed *= 0.85;
-                    frontCar.speed = Math.min(frontCar.speed * 1.05, frontCar.maxSpeed);
+                // Speed exchange - rear car slows down, front car gets a small push
+                const aAhead = a.getEffectiveDistance() > b.getEffectiveDistance();
+                const frontCar = aAhead ? a : b;
+                const rearCar = aAhead ? b : a;
 
-                    // Re-update positions after collision resolution
-                    a.updatePosition();
-                    b.updatePosition();
-                }
+                rearCar.speed *= 0.85;
+                frontCar.speed = Math.min(frontCar.speed * 1.05, frontCar.maxSpeed);
+
+                // Re-update positions after collision resolution
+                a.updatePosition();
+                b.updatePosition();
+            }
+        }
+
+        // Update debug collider colors
+        if (CarRacer.debugColliders) {
+            for (const r of racers) {
+                r._setDebugColor(r.colliding ? 0xff0000 : 0x00ff00);
             }
         }
     }
