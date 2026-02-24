@@ -15,6 +15,7 @@ export class CarRacer {
         this.roadWidth = roadWidth;
         this.isPlayer = isPlayer;
         this.colliding = false;
+        this.curveLength = curve.getLength(); // cache for collision response
 
         // Create debug collider wireframe (hidden by default)
         this._createDebugCollider();
@@ -84,11 +85,20 @@ export class CarRacer {
         // Roll car to match road banking
         this.model.rotation.z = -bankAngle;
 
-        // Spin wheels
+        // Spin wheels (rolling)
         const wheels = this.model.userData.wheels;
         if (wheels) {
             for (const wheel of wheels) {
                 wheel.rotation.x += this.speed * 500;
+            }
+        }
+
+        // Steer front wheels (yaw the steering groups)
+        const frontGroups = this.model.userData.frontWheelGroups;
+        if (frontGroups) {
+            const steerAngle = -this.steering * 0.4; // visual wheel turn amount
+            for (const grp of frontGroups) {
+                grp.rotation.y = steerAngle;
             }
         }
 
@@ -241,40 +251,52 @@ export class CarRacer {
 
                 const { overlap, nx, nz } = hit;
 
-                // Push apart - player is heavier
+                // Push weights - player is heavier (moves less)
                 const weightA = a.isPlayer ? 0.3 : 0.5;
                 const weightB = b.isPlayer ? 0.3 : 0.5;
 
-                // Convert push direction to lateral offset change
+                // Get track frame data for both cars
                 const t_a = ((a.trackProgress % 1) + 1) % 1;
                 const t_b = ((b.trackProgress % 1) + 1) % 1;
-                const rawA = t_a * 200;
-                const rawB = t_b * 200;
-                const idxA = Math.floor(rawA) % 201;
-                const idxB = Math.floor(rawB) % 201;
+                const idxA = Math.floor(t_a * 200) % 201;
+                const idxB = Math.floor(t_b * 200) % 201;
                 const rightA = a.frames.binormals[idxA];
                 const rightB = b.frames.binormals[idxB];
+                const tangentA = a.frames.tangents[idxA];
+                const tangentB = b.frames.tangents[idxB];
 
-                // Project push direction onto each car's right vector
-                const lateralPushA = -(nx * rightA.x + nz * rightA.z) * overlap;
-                const lateralPushB = (nx * rightB.x + nz * rightB.z) * overlap;
+                // Decompose push into lateral (across track) and longitudinal (along track)
+                // Push direction (nx, nz) points from A → B
+                const latCompA = nx * rightA.x + nz * rightA.z;   // how much push is sideways for A
+                const lonCompA = nx * tangentA.x + nz * tangentA.z; // how much push is along track for A
+                const latCompB = nx * rightB.x + nz * rightB.z;
+                const lonCompB = nx * tangentB.x + nz * tangentB.z;
 
+                // Apply lateral separation (push A left, push B right)
                 const maxLateralA = a.roadWidth / 2 - 1.5;
                 const maxLateralB = b.roadWidth / 2 - 1.5;
 
-                a.lateralOffset += (lateralPushA / maxLateralA) * weightA;
-                b.lateralOffset += (lateralPushB / maxLateralB) * weightB;
+                a.lateralOffset -= (latCompA * overlap / maxLateralA) * weightA;
+                b.lateralOffset += (latCompB * overlap / maxLateralB) * weightB;
 
                 a.lateralOffset = Math.max(-0.95, Math.min(0.95, a.lateralOffset));
                 b.lateralOffset = Math.max(-0.95, Math.min(0.95, b.lateralOffset));
 
-                // Speed exchange - rear car slows down, front car gets a small push
+                // Apply longitudinal separation (push apart along track)
+                // Convert world distance to trackProgress delta
+                const invLenA = 1 / a.curveLength;
+                const invLenB = 1 / b.curveLength;
+
+                a.trackProgress -= lonCompA * overlap * weightA * invLenA;
+                b.trackProgress += lonCompB * overlap * weightB * invLenB;
+
+                // Gentle speed exchange on contact (NOT the brutal 0.85 per frame!)
                 const aAhead = a.getEffectiveDistance() > b.getEffectiveDistance();
                 const frontCar = aAhead ? a : b;
                 const rearCar = aAhead ? b : a;
 
-                rearCar.speed *= 0.85;
-                frontCar.speed = Math.min(frontCar.speed * 1.05, frontCar.maxSpeed);
+                rearCar.speed *= 0.97;   // gentle tap on the brakes
+                frontCar.speed = Math.min(frontCar.speed * 1.01, frontCar.maxSpeed);
 
                 // Re-update positions after collision resolution
                 a.updatePosition();

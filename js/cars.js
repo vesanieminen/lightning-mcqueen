@@ -122,6 +122,7 @@ export function createCarModel(carData, isPlayer = false) {
 
     // Wheels
     const wheelGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.25, 16);
+    const hubGeoW = new THREE.CylinderGeometry(0.15, 0.15, 0.26, 8);
     const wheelPositions = [
         [-1.05, 0.35, 1.2],  // front-left
         [1.05, 0.35, 1.2],   // front-right
@@ -130,21 +131,38 @@ export function createCarModel(carData, isPlayer = false) {
     ];
 
     const wheels = [];
-    for (const pos of wheelPositions) {
+    const frontWheelGroups = [];
+    for (let wi = 0; wi < wheelPositions.length; wi++) {
+        const pos = wheelPositions[wi];
+        const isFront = pos[2] > 0;
+
         const wheel = new THREE.Mesh(wheelGeo, blackMat);
         wheel.rotation.z = Math.PI / 2;
-        wheel.position.set(...pos);
-        group.add(wheel);
-        wheels.push(wheel);
 
-        // Hubcap
-        const hubGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.26, 8);
-        const hub = new THREE.Mesh(hubGeo, accentMat);
+        const hub = new THREE.Mesh(hubGeoW, accentMat);
         hub.rotation.z = Math.PI / 2;
-        hub.position.set(...pos);
-        group.add(hub);
+
+        if (isFront) {
+            // Wrap front wheels in a steering group so we can yaw them
+            const steerGroup = new THREE.Group();
+            steerGroup.position.set(...pos);
+            wheel.position.set(0, 0, 0);
+            hub.position.set(0, 0, 0);
+            steerGroup.add(wheel);
+            steerGroup.add(hub);
+            group.add(steerGroup);
+            frontWheelGroups.push(steerGroup);
+        } else {
+            wheel.position.set(...pos);
+            hub.position.set(...pos);
+            group.add(wheel);
+            group.add(hub);
+        }
+
+        wheels.push(wheel);
     }
     group.userData.wheels = wheels;
+    group.userData.frontWheelGroups = frontWheelGroups;
 
     // Spoiler for race cars
     if (carData.number) {
