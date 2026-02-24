@@ -9,6 +9,7 @@ export const TRACK_DATA = [
         icon: '🏜️',
         laps: 3,
         roadWidth: 18,
+        maxBankAngle: 0.12,   // ~7 degrees - gentle banking
         buildTrack: buildOvalTrack,
         buildScenery: buildDesertScenery,
     },
@@ -19,6 +20,7 @@ export const TRACK_DATA = [
         icon: '🏟️',
         laps: 3,
         roadWidth: 18,
+        maxBankAngle: 0.28,   // ~16 degrees - NASCAR-style banking
         buildTrack: buildCircuitTrack,
         buildScenery: buildStadiumScenery,
     },
@@ -27,9 +29,10 @@ export const TRACK_DATA = [
 // Compute consistent track directions for a flat XZ-plane curve.
 // Uses arc-length parameterization (getTangentAt) for uniform speed across the track.
 // Replaces Three.js computeFrenetFrames which is unreliable for planar curves.
-function computeTrackFrames(curve, segments) {
+function computeTrackFrames(curve, segments, maxBankAngle = 0) {
     const tangents = [];
     const binormals = []; // "right" vectors perpendicular to track in XZ plane
+    const bankAngles = []; // banking angle at each segment (radians)
 
     for (let i = 0; i <= segments; i++) {
         const t = i / segments;
@@ -45,7 +48,45 @@ function computeTrackFrames(curve, segments) {
         binormals.push(right);
     }
 
-    return { tangents, binormals };
+    // Compute banking based on curvature (rate of tangent direction change)
+    if (maxBankAngle > 0) {
+        const rawCurvature = [];
+        for (let i = 0; i <= segments; i++) {
+            const prev = tangents[(i - 1 + segments + 1) % (segments + 1)];
+            const next = tangents[(i + 1) % (segments + 1)];
+            // Signed curvature: cross product Y component gives turn direction
+            const cross = prev.x * next.z - prev.z * next.x;
+            rawCurvature.push(cross);
+        }
+
+        // Smooth the curvature (fewer passes to keep banking focused on corners)
+        let smoothed = [...rawCurvature];
+        for (let pass = 0; pass < 4; pass++) {
+            const temp = [...smoothed];
+            for (let i = 0; i <= segments; i++) {
+                const prev = temp[(i - 1 + segments + 1) % (segments + 1)];
+                const next = temp[(i + 1) % (segments + 1)];
+                smoothed[i] = prev * 0.25 + temp[i] * 0.5 + next * 0.25;
+            }
+        }
+
+        // Normalize curvature to [-1, 1] range and scale to bank angle
+        let maxCurv = 0;
+        for (const c of smoothed) maxCurv = Math.max(maxCurv, Math.abs(c));
+        if (maxCurv > 0.0001) {
+            for (let i = 0; i <= segments; i++) {
+                // Threshold: zero out very small banking on straights
+                const normalized = smoothed[i] / maxCurv;
+                bankAngles.push(Math.abs(normalized) < 0.1 ? 0 : -normalized * maxBankAngle);
+            }
+        } else {
+            for (let i = 0; i <= segments; i++) bankAngles.push(0);
+        }
+    } else {
+        for (let i = 0; i <= segments; i++) bankAngles.push(0);
+    }
+
+    return { tangents, binormals, bankAngles };
 }
 
 // Oval track
@@ -112,7 +153,8 @@ export function buildTrackMesh(trackData) {
     const roadWidth = trackData.roadWidth;
 
     // Compute reliable track frames (not Frenet)
-    const frames = computeTrackFrames(curve, 200);
+    const maxBank = trackData.maxBankAngle || 0;
+    const frames = computeTrackFrames(curve, 200, maxBank);
     const roadVertices = [];
     const roadIndices = [];
     const roadUVs = [];
@@ -121,12 +163,16 @@ export function buildTrackMesh(trackData) {
         const t = i / 200;
         const point = curve.getPointAt(t);
         const right = frames.binormals[i];
+        const bank = frames.bankAngles[i];
 
         const left = point.clone().add(right.clone().multiplyScalar(-roadWidth / 2));
         const rightPt = point.clone().add(right.clone().multiplyScalar(roadWidth / 2));
 
-        left.y = 0.01;
-        rightPt.y = 0.01;
+        // Banking: tilt the road cross-section around the center line
+        // Raise the center so the low side stays above ground
+        const bankLift = Math.abs(Math.sin(bank)) * (roadWidth / 2);
+        left.y = 0.01 + bankLift - Math.sin(bank) * (roadWidth / 2);
+        rightPt.y = 0.01 + bankLift + Math.sin(bank) * (roadWidth / 2);
 
         roadVertices.push(left.x, left.y, left.z);
         roadVertices.push(rightPt.x, rightPt.y, rightPt.z);
@@ -157,7 +203,9 @@ export function buildTrackMesh(trackData) {
     for (let i = 0; i <= 200; i++) {
         const t = i / 200;
         const point = curve.getPointAt(t);
-        centerVertices.push(point.x, 0.05, point.z);
+        const clBank = frames.bankAngles[i];
+        const clBankLift = Math.abs(Math.sin(clBank)) * (roadWidth / 2);
+        centerVertices.push(point.x, 0.05 + clBankLift, point.z);
     }
     const lineGeo = new THREE.BufferGeometry();
     lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(centerVertices, 3));
@@ -177,11 +225,14 @@ export function buildTrackMesh(trackData) {
             const t = i / 200;
             const point = curve.getPointAt(t);
             const right = frames.binormals[i];
+            const bank = frames.bankAngles[i];
 
             const inner = point.clone().add(right.clone().multiplyScalar(side * (roadWidth / 2 - 0.2)));
             const outer = point.clone().add(right.clone().multiplyScalar(side * (roadWidth / 2 + curbWidth)));
-            inner.y = 0.03;
-            outer.y = 0.03;
+            // Follow road banking for curb Y positions (include bankLift to match road surface)
+            const curbBankLift = Math.abs(Math.sin(bank)) * (roadWidth / 2);
+            inner.y = 0.03 + curbBankLift + Math.sin(bank) * side * (roadWidth / 2 - 0.2);
+            outer.y = 0.03 + curbBankLift + Math.sin(bank) * side * (roadWidth / 2 + curbWidth);
 
             // For the left side (side=-1), swap inner/outer vertex order
             // to fix triangle winding so the face points up

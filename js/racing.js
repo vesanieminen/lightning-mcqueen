@@ -43,15 +43,26 @@ export class CarRacer {
         const lateralPos = this.lateralOffset * maxLateral;
         const offset = right.clone().multiplyScalar(lateralPos);
 
+        // Banking: tilt car and adjust Y position based on road bank angle
+        const bankAngle = this.frames.bankAngles ? this.frames.bankAngles[idx] : 0;
+        const maxLateralWorld = this.roadWidth / 2 - 1.5;
+        const lateralWorld = this.lateralOffset * maxLateralWorld;
+        // bankLift raises the road center at banked sections so the low side stays above ground
+        const bankLift = Math.abs(Math.sin(bankAngle)) * (this.roadWidth / 2);
+        const bankY = Math.sin(bankAngle) * lateralWorld;
+
         this.model.position.set(
             point.x + offset.x,
-            0.2,
+            0.2 + bankLift + bankY,
             point.z + offset.z
         );
 
         // Face the direction of travel, yaw nose into steering direction
         const angle = Math.atan2(tangent.x, tangent.z);
         this.model.rotation.y = angle - this.steering * 0.15;
+
+        // Roll car to match road banking
+        this.model.rotation.z = -bankAngle;
 
         // Spin wheels
         const wheels = this.model.userData.wheels;
