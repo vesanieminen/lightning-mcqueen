@@ -5,7 +5,8 @@ import { CarRacer, Controls, RaceCamera } from './racing.js';
 import { AIDriver } from './ai.js';
 import {
     showTitleScreen, showCharacterSelect, showTrackSelect,
-    showRaceHUD, showCountdown, updateHUD, showResults, clearUI
+    showRaceHUD, showCountdown, updateHUD, showResults,
+    showPauseMenu, hidePauseMenu, clearUI
 } from './ui.js';
 import {
     initAudio, startEngineSound, updateEngineSound, stopEngineSound,
@@ -19,6 +20,7 @@ const STATES = {
     SELECT_TRACK: 'select_track',
     COUNTDOWN: 'countdown',
     RACING: 'racing',
+    PAUSED: 'paused',
     RESULTS: 'results',
 };
 
@@ -49,6 +51,15 @@ class Game {
 
         // Resize handler
         window.addEventListener('resize', () => this.onResize());
+
+        // Pause key handler
+        this._onPauseKey = (e) => {
+            if (e.key === 'Escape') {
+                if (this.state === STATES.RACING) this.pause();
+                else if (this.state === STATES.PAUSED) this.resume();
+            }
+        };
+        window.addEventListener('keydown', this._onPauseKey);
 
         // Game objects
         this.controls = null;
@@ -145,6 +156,22 @@ class Game {
         }
     }
 
+    pause() {
+        this.state = STATES.PAUSED;
+        stopEngineSound();
+        showPauseMenu(
+            () => this.resume(),
+            () => this.enterState(STATES.TITLE)
+        );
+    }
+
+    resume() {
+        hidePauseMenu();
+        this.state = STATES.RACING;
+        startEngineSound();
+        this.clock.getDelta(); // flush accumulated dt
+    }
+
     setupRace() {
         this.cleanupRace();
 
@@ -231,6 +258,7 @@ class Game {
 
     cleanupRace() {
         stopEngineSound();
+        hidePauseMenu();
 
         // Remove track and cars from scene
         while (this.scene.children.length > 3) {
@@ -253,8 +281,18 @@ class Game {
     }
 
     update(dt) {
+        if (this.state === STATES.PAUSED) return;
         if (this.state !== STATES.RACING && this.state !== STATES.COUNTDOWN) return;
         if (!this.raceStarted) return;
+
+        // Check for Start button (gamepad pause)
+        if (this.controls) {
+            this.controls.getSteerInput(); // polls gamepad
+            if (this.controls.startPressed) {
+                this.pause();
+                return;
+            }
+        }
 
         this.raceElapsed += dt;
 

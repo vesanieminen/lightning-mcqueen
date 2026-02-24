@@ -68,23 +68,26 @@ export class CarRacer {
     }
 
     update(dt, steerInput) {
+        // Normalize to 60fps baseline so speed is consistent across refresh rates
+        const step = dt * 60;
+
         if (this.finished) {
-            this.speed *= 0.98;
-            this.trackProgress += this.speed;
+            this.speed *= Math.pow(0.98, step);
+            this.trackProgress += this.speed * step;
             this.updatePosition();
             return;
         }
 
         // Auto-accelerate
-        this.speed = Math.min(this.speed + this.acceleration, this.maxSpeed);
+        this.speed = Math.min(this.speed + this.acceleration * step, this.maxSpeed);
 
         // Steering: positive = right, negative = left
         this.steering = steerInput;
-        this.lateralOffset += this.steering * this.steerSpeed * (this.speed / this.maxSpeed);
+        this.lateralOffset += this.steering * this.steerSpeed * (this.speed / this.maxSpeed) * step;
         this.lateralOffset = Math.max(-0.95, Math.min(0.95, this.lateralOffset));
 
         // Move along track
-        this.trackProgress += this.speed;
+        this.trackProgress += this.speed * step;
 
         // Lap detection
         const currentProgress = this.trackProgress % 1;
@@ -171,6 +174,8 @@ export class Controls {
         this.right = false;
         this.gamepadIndex = null;
         this.gamepadSteer = 0;
+        this.startPressed = false;
+        this._lastStartState = false;
 
         this._onKeyDown = (e) => {
             if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') this.left = true;
@@ -238,6 +243,11 @@ export class Controls {
         // D-pad: buttons 14 (left) and 15 (right) on standard gamepad mapping
         if (gp.buttons[14] && gp.buttons[14].pressed) this.gamepadSteer = -1;
         if (gp.buttons[15] && gp.buttons[15].pressed) this.gamepadSteer = 1;
+
+        // Start button (button 9) with edge detection
+        const startBtn = gp.buttons[9] ? gp.buttons[9].pressed : false;
+        this.startPressed = startBtn && !this._lastStartState;
+        this._lastStartState = startBtn;
     }
 
     getSteerInput() {

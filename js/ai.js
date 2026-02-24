@@ -25,6 +25,7 @@ export class AIDriver {
 
     update(dt, elapsed) {
         const racer = this.racer;
+        const step = dt * 60; // normalize to 60fps
 
         // Cap AI speed to be slower than player
         racer.maxSpeed = racer.isPlayer ? 0.0012 : (0.0009 * this.speedFactor);
@@ -32,7 +33,7 @@ export class AIDriver {
         // Periodic slowdowns
         this.slowdownTimer += dt;
         if (this.isSlowingDown) {
-            racer.speed *= 0.97; // brake
+            racer.speed *= Math.pow(0.97, step); // brake (frame-rate independent)
             if (this.slowdownTimer > this.slowdownDuration) {
                 this.isSlowingDown = false;
                 this.slowdownTimer = 0;
