@@ -29,7 +29,7 @@ export class AIDriver {
 
         // Cap AI speed to ~85% of player max speed (normalized by track length)
         const speedScale = 565 / racer.curveLength;
-        racer.maxSpeed = 0.0012 * this.speedFactor * speedScale;
+        racer.maxSpeed = 0.0015 * this.speedFactor * speedScale;
 
         // Periodic slowdowns
         this.slowdownTimer += dt;

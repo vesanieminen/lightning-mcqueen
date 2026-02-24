@@ -10,7 +10,7 @@ import {
 } from './ui.js';
 import {
     initAudio, startEngineSound, updateEngineSound, stopEngineSound,
-    playCountdownBeep, playWinSound, playHitSound
+    playCountdownBeep, playLapSound, playWinSound, playHitSound
 } from './sounds.js';
 
 // Game states
@@ -231,6 +231,7 @@ class Game {
         this.raceStarted = false;
         this.raceFinished = false;
         this.finishOrder = [];
+        this.playerLastLap = 0;
 
         // Show HUD
         showRaceHUD();
@@ -304,6 +305,12 @@ class Game {
         const steerInput = this.controls ? this.controls.getSteerInput() : 0;
         const throttleInput = this.controls ? this.controls.getThrottleInput() : 0;
         this.playerRacer.update(dt, steerInput, throttleInput);
+
+        // Check if player completed a lap
+        if (this.playerRacer.lap > this.playerLastLap && this.playerRacer.lap < this.playerRacer.totalLaps) {
+            playLapSound();
+        }
+        this.playerLastLap = this.playerRacer.lap;
 
         // Update engine sound pitch based on speed
         if (this.playerRacer) {

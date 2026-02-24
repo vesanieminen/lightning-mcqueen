@@ -28,7 +28,7 @@ export class CarRacer {
         // Reference: original oval is ~565 world units
         const speedScale = 565 / this.curveLength;
         this.speed = 0;
-        this.maxSpeed = (isPlayer ? 0.0012 : 0.00102) * speedScale;
+        this.maxSpeed = (isPlayer ? 0.0015 : 0.001275) * speedScale;
         this.acceleration = (isPlayer ? 0.00003 : 0.000025) * speedScale;
         this.steerSpeed = isPlayer ? 0.035 : 0.03;
         this.steering = 0;

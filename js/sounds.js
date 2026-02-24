@@ -129,6 +129,28 @@ export function playHitSound() {
     ping.stop(now + 0.12);
 }
 
+// Lap completion chime - quick ascending two-note "ding-ding!"
+export function playLapSound() {
+    const ctx = getCtx();
+    const now = ctx.currentTime;
+    const notes = [660, 880]; // E5, A5 — bright and cheerful
+
+    notes.forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.2, now + i * 0.12);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.25);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + i * 0.12);
+        osc.stop(now + i * 0.12 + 0.3);
+    });
+}
+
 // Win fanfare
 export function playWinSound() {
     const ctx = getCtx();
