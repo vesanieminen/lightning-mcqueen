@@ -352,7 +352,8 @@ class Game {
 
         // Update camera
         if (this.raceCamera) {
-            this.raceCamera.update(this.playerRacer);
+            const lookBack = this.controls ? this.controls.lookBack : false;
+            this.raceCamera.update(this.playerRacer, lookBack);
         }
     }
 

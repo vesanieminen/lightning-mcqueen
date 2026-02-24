@@ -181,6 +181,7 @@ export class Controls {
         this.left = false;
         this.right = false;
         this.throttleKey = false;
+        this.lookBack = false;
         this.gamepadIndex = null;
         this.gamepadSteer = 0;
         this.gamepadThrottle = 0;
@@ -191,11 +192,13 @@ export class Controls {
             if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') this.left = true;
             if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') this.right = true;
             if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') this.throttleKey = true;
+            if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') this.lookBack = true;
         };
         this._onKeyUp = (e) => {
             if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') this.left = false;
             if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') this.right = false;
             if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') this.throttleKey = false;
+            if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') this.lookBack = false;
         };
 
         window.addEventListener('keydown', this._onKeyDown);
@@ -259,6 +262,9 @@ export class Controls {
         // Right trigger (RT) for analog throttle (button 7, value 0.0–1.0)
         this.gamepadThrottle = gp.buttons[7] ? gp.buttons[7].value : 0;
 
+        // Y button (button 3) for look-back camera
+        if (gp.buttons[3]) this.lookBack = gp.buttons[3].pressed;
+
         // Start button (button 9) with edge detection
         const startBtn = gp.buttons[9] ? gp.buttons[9].pressed : false;
         this.startPressed = startBtn && !this._lastStartState;
@@ -305,16 +311,18 @@ export class RaceCamera {
         this.smoothFactor = 0.05;
     }
 
-    update(playerRacer) {
+    update(playerRacer, lookBack = false) {
         if (!playerRacer) return;
 
         const carPos = playerRacer.model.position.clone();
         const carRotation = playerRacer.model.rotation.y;
 
+        // Flip camera direction when looking back
+        const dir = lookBack ? 1 : -1;
         const cameraOffset = new THREE.Vector3(
-            -Math.sin(carRotation) * 12,
+            dir * Math.sin(carRotation) * 12,
             7,
-            -Math.cos(carRotation) * 12
+            dir * Math.cos(carRotation) * 12
         );
 
         this.targetPosition.copy(carPos).add(cameraOffset);
