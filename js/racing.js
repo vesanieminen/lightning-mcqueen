@@ -67,7 +67,7 @@ export class CarRacer {
         }
     }
 
-    update(dt, steerInput) {
+    update(dt, steerInput, throttle = 1.0) {
         // Normalize to 60fps baseline so speed is consistent across refresh rates
         const step = dt * 60;
 
@@ -78,8 +78,16 @@ export class CarRacer {
             return;
         }
 
-        // Auto-accelerate
-        this.speed = Math.min(this.speed + this.acceleration * step, this.maxSpeed);
+        // Throttle-based acceleration
+        if (throttle > 0) {
+            const targetSpeed = this.maxSpeed * throttle;
+            this.speed += (targetSpeed - this.speed) * 0.05 * step;
+            this.speed = Math.min(this.speed, this.maxSpeed);
+        } else {
+            // Coast / decelerate when not pressing throttle
+            this.speed *= Math.pow(0.97, step);
+            if (this.speed < 0.00001) this.speed = 0;
+        }
 
         // Steering: positive = right, negative = left
         this.steering = steerInput;
@@ -172,18 +180,22 @@ export class Controls {
     constructor() {
         this.left = false;
         this.right = false;
+        this.throttleKey = false;
         this.gamepadIndex = null;
         this.gamepadSteer = 0;
+        this.gamepadThrottle = 0;
         this.startPressed = false;
         this._lastStartState = false;
 
         this._onKeyDown = (e) => {
             if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') this.left = true;
             if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') this.right = true;
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') this.throttleKey = true;
         };
         this._onKeyUp = (e) => {
             if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') this.left = false;
             if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') this.right = false;
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') this.throttleKey = false;
         };
 
         window.addEventListener('keydown', this._onKeyDown);
@@ -244,6 +256,9 @@ export class Controls {
         if (gp.buttons[14] && gp.buttons[14].pressed) this.gamepadSteer = -1;
         if (gp.buttons[15] && gp.buttons[15].pressed) this.gamepadSteer = 1;
 
+        // Right trigger (RT) for analog throttle (button 7, value 0.0–1.0)
+        this.gamepadThrottle = gp.buttons[7] ? gp.buttons[7].value : 0;
+
         // Start button (button 9) with edge detection
         const startBtn = gp.buttons[9] ? gp.buttons[9].pressed : false;
         this.startPressed = startBtn && !this._lastStartState;
@@ -262,6 +277,15 @@ export class Controls {
         if (this.left && !this.right) return -1;
         if (this.right && !this.left) return 1;
         return 0;
+    }
+
+    getThrottleInput() {
+        // Gamepad RT analog trigger takes priority (0.0–1.0)
+        if (this.gamepadIndex !== null && this.gamepadThrottle > 0.05) {
+            return Math.min(1, this.gamepadThrottle);
+        }
+        // Keyboard / touch: full throttle when key held
+        return this.throttleKey ? 1.0 : 0.0;
     }
 
     destroy() {

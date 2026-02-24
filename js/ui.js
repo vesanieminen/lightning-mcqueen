@@ -12,6 +12,7 @@ let _menuConfirm = null;  // callback when A / Enter pressed
 let _lastDPad = { up: false, down: false, left: false, right: false };
 let _lastA = false;
 let _menuColumns = 1;     // grid columns for 2-D navigation
+let _clickOnNav = false;  // whether navigating clicks items (grids) vs just highlighting (buttons)
 
 function startMenuPoll() {
     stopMenuPoll();
@@ -28,12 +29,13 @@ function stopMenuPoll() {
     window.removeEventListener('keydown', onMenuKeyDown);
 }
 
-function setMenuItems(selector, columns = 1, confirmCb = null) {
+function setMenuItems(selector, columns = 1, confirmCb = null, clickOnNav = false) {
     _menuItems = Array.from(overlay.querySelectorAll(selector));
     _menuColumns = columns;
     _menuIndex = _menuItems.findIndex(el => el.classList.contains('selected'));
     if (_menuIndex < 0) _menuIndex = 0;
     _menuConfirm = confirmCb;
+    _clickOnNav = clickOnNav;
     highlightMenuItem();
     window.removeEventListener('keydown', onMenuKeyDown);
     window.addEventListener('keydown', onMenuKeyDown);
@@ -72,8 +74,8 @@ function moveMenuSelection(delta) {
     if (!_menuItems.length) return;
     _menuIndex = (_menuIndex + delta + _menuItems.length) % _menuItems.length;
     highlightMenuItem();
-    // Also trigger click to update selection state
-    _menuItems[_menuIndex].click();
+    // Only click on navigation for grids (to update selection state), not for action buttons
+    if (_clickOnNav) _menuItems[_menuIndex].click();
 }
 
 function activateMenuItem() {
@@ -335,7 +337,7 @@ export function showCharacterSelect(onSelect) {
 
     setMenuItems('.car-card.menu-item', 3, () => {
         document.getElementById('confirm-car').click();
-    });
+    }, true);
 }
 
 // Show track select
@@ -379,7 +381,7 @@ export function showTrackSelect(onSelect) {
 
     setMenuItems('.track-card.menu-item', 2, () => {
         document.getElementById('confirm-track').click();
-    });
+    }, true);
 }
 
 // Show race HUD
@@ -390,7 +392,6 @@ export function showRaceHUD() {
             <div class="hud-lap" id="hud-lap">Lap 1 / 3</div>
             <div class="hud-position" id="hud-position">1st</div>
         </div>
-        <div class="controls-hint">Arrow Keys or A/D to steer</div>
         <div class="mobile-controls">
             <div class="steer-btn" id="steer-left">&#9664;</div>
             <div class="steer-btn" id="steer-right">&#9654;</div>

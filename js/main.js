@@ -298,7 +298,8 @@ class Game {
 
         // Update player
         const steerInput = this.controls ? this.controls.getSteerInput() : 0;
-        this.playerRacer.update(dt, steerInput);
+        const throttleInput = this.controls ? this.controls.getThrottleInput() : 0;
+        this.playerRacer.update(dt, steerInput, throttleInput);
 
         // Update engine sound pitch based on speed
         if (this.playerRacer) {
