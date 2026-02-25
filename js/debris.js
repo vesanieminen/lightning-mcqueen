@@ -24,6 +24,9 @@ export class DebrisManager {
 
     // Spawn debris at car's world position with car's body color and yaw
     explode(position, yRotation, bodyColor) {
+        // Approximate ground level from car position (car sits 0.2 above surface)
+        const groundY = Math.max(0, position.y - 0.2);
+
         for (let idx = 0; idx < SHAPES.length; idx++) {
             const [w, h, d] = SHAPES[idx];
 
@@ -59,6 +62,7 @@ export class DebrisManager {
                 ay: (Math.random() - 0.5) * 14,
                 az: (Math.random() - 0.5) * 14,
                 life: 2.5 + Math.random(),
+                groundY, // elevation-aware ground bounce
             });
 
             this.scene.add(mesh);
@@ -79,9 +83,10 @@ export class DebrisManager {
             p.mesh.position.y += p.vy * dt;
             p.mesh.position.z += p.vz * dt;
 
-            // Ground plane bounce
-            if (p.mesh.position.y < 0.08) {
-                p.mesh.position.y = 0.08;
+            // Ground bounce (elevation-aware)
+            const bounceY = (p.groundY || 0) + 0.08;
+            if (p.mesh.position.y < bounceY) {
+                p.mesh.position.y = bounceY;
                 p.vy = -p.vy * 0.35;
                 p.vx *= 0.78;
                 p.vz *= 0.78;

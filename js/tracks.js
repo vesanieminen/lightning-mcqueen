@@ -77,22 +77,50 @@ export const TRACK_DATA = [
     },
 ];
 
-// Compute consistent track directions for a flat XZ-plane curve.
+// Terrain height cache for scenery/debris placement
+let _terrainSamples = null;
+
+export function getTerrainHeightAt(x, z) {
+    if (!_terrainSamples) return 0;
+    let minDistSq = Infinity;
+    let nearestY = 0;
+    for (const s of _terrainSamples) {
+        const dx = x - s.x;
+        const dz = z - s.z;
+        const d = dx * dx + dz * dz;
+        if (d < minDistSq) { minDistSq = d; nearestY = s.y; }
+    }
+    return nearestY;
+}
+
+function cacheTerrainSamples(curve) {
+    _terrainSamples = [];
+    for (let i = 0; i < 200; i++) {
+        _terrainSamples.push(curve.getPointAt(i / 200));
+    }
+}
+
+// Compute consistent track directions for a 3D curve.
 // Uses arc-length parameterization (getTangentAt) for uniform speed across the track.
-// Replaces Three.js computeFrenetFrames which is unreliable for planar curves.
+// Stores both flat (XZ-projected) tangents for binormals/banking and full 3D tangents for pitch.
 function computeTrackFrames(curve, segments, maxBankAngle = 0) {
     const tangents = [];
+    const tangents3D = []; // full 3D tangent for car pitch calculation
     const binormals = []; // "right" vectors perpendicular to track in XZ plane
     const bankAngles = []; // banking angle at each segment (radians)
 
     for (let i = 0; i <= segments; i++) {
         const t = i / segments;
         const tangent = curve.getTangentAt(t);
+
+        // Store full 3D tangent before flattening
+        tangents3D.push(tangent.clone());
+
+        // Flatten to XZ plane for binormal/banking calculations
         tangent.y = 0;
         tangent.normalize();
 
         // Right-pointing perpendicular in XZ plane
-        // If tangent is (tx, 0, tz), right is (-tz, 0, tx)
         const right = new THREE.Vector3(-tangent.z, 0, tangent.x);
 
         tangents.push(tangent);
@@ -137,10 +165,10 @@ function computeTrackFrames(curve, segments, maxBankAngle = 0) {
         for (let i = 0; i <= segments; i++) bankAngles.push(0);
     }
 
-    return { tangents, binormals, bankAngles };
+    return { tangents, tangents3D, binormals, bankAngles };
 }
 
-// Oval track
+// Oval track — two gentle hills on the long straights
 function buildOvalTrack() {
     const points = [];
     const a = 120; // semi-major axis
@@ -149,9 +177,11 @@ function buildOvalTrack() {
 
     for (let i = 0; i < segments; i++) {
         const t = (i / segments) * Math.PI * 2;
+        // Two hills per lap: peaks at the midpoints of the long sides
+        const y = (1 - Math.cos(t * 2)) * 3; // 0 to 6
         points.push(new THREE.Vector3(
             Math.sin(t) * a,
-            0,
+            y,
             Math.cos(t) * b
         ));
     }
@@ -160,6 +190,7 @@ function buildOvalTrack() {
 }
 
 // Rounded rectangle circuit - clockwise to match oval direction
+// Hill on back straight (bottom), flat on front straight (top)
 function buildCircuitTrack() {
     const points = [];
     const W = 100; // half-width
@@ -168,180 +199,183 @@ function buildCircuitTrack() {
     const S = 10;  // points per straight
     const C = 10;  // points per corner
 
-    function addStraight(x1, z1, x2, z2) {
+    function addStraight(x1, z1, x2, z2, y1 = 0, y2 = 0) {
         for (let i = 0; i < S; i++) {
             const t = i / S;
-            points.push(new THREE.Vector3(x1 + (x2 - x1) * t, 0, z1 + (z2 - z1) * t));
+            points.push(new THREE.Vector3(
+                x1 + (x2 - x1) * t,
+                y1 + (y2 - y1) * t,
+                z1 + (z2 - z1) * t
+            ));
         }
     }
 
-    function addCornerCW(cx, cz, startAngle) {
+    function addCornerCW(cx, cz, startAngle, y = 0) {
         for (let i = 0; i < C; i++) {
             const t = i / C;
             const angle = startAngle - t * (Math.PI / 2);
-            points.push(new THREE.Vector3(cx + Math.cos(angle) * R, 0, cz + Math.sin(angle) * R));
+            points.push(new THREE.Vector3(cx + Math.cos(angle) * R, y, cz + Math.sin(angle) * R));
         }
     }
 
     // Clockwise: top-right → right-down → bottom-left → left-up
-    // Starting at top, going right (matches oval direction at t=0)
-    addStraight(-(W - R), H, W - R, H);              // Top straight (going right)
-    addCornerCW(W - R, H - R, Math.PI / 2);           // Top-right corner
-    addStraight(W, H - R, W, -(H - R));              // Right straight (going down)
-    addCornerCW(W - R, -(H - R), 0);                  // Bottom-right corner
-    addStraight(W - R, -H, -(W - R), -H);            // Bottom straight (going left)
-    addCornerCW(-(W - R), -(H - R), -Math.PI / 2);    // Bottom-left corner
-    addStraight(-W, -(H - R), -W, H - R);            // Left straight (going up)
-    addCornerCW(-(W - R), H - R, Math.PI);            // Top-left corner
+    addStraight(-(W - R), H, W - R, H, 0, 0);              // Top straight: flat
+    addCornerCW(W - R, H - R, Math.PI / 2, 0);              // Top-right: flat
+    addStraight(W, H - R, W, -(H - R), 0, 3);              // Right: climb to 3
+    addCornerCW(W - R, -(H - R), 0, 3);                     // Bottom-right: high
+    addStraight(W - R, -H, -(W - R), -H, 3, 3);            // Bottom straight: stay high
+    addCornerCW(-(W - R), -(H - R), -Math.PI / 2, 3);       // Bottom-left: high
+    addStraight(-W, -(H - R), -W, H - R, 3, 0);            // Left: descend to 0
+    addCornerCW(-(W - R), H - R, Math.PI, 0);               // Top-left: flat
 
     return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
 }
 
 // ---- NEW TRACK BUILDERS ----
 
-// Willy's Butte: Desert canyon switchbacks
+// Willy's Butte: Desert canyon switchbacks with dramatic elevation
 function buildWillysButteTrack() {
     const pts = [
-        [0, 90],         // start heading east
-        [60, 95],
-        [130, 80],       // gentle right
-        [180, 50],       // curving south
-        [200, -10],      // heading south
-        [180, -70],
-        [140, -110],     // sweeping left hairpin
-        [80, -130],
-        [20, -120],      // heading back west
-        [-30, -90],
-        [-50, -50],      // chicane north
-        [-80, -20],
-        [-120, -40],     // S-curve southward
-        [-150, -80],
-        [-190, -120],    // long left-hand sweeper
-        [-230, -130],
-        [-270, -100],
-        [-290, -50],     // heading north through canyon
-        [-280, 10],
-        [-250, 60],      // right-hand curve
-        [-210, 90],
-        [-160, 100],     // straight heading east
-        [-100, 95],
-        [-50, 100],      // gentle S back to start
+        [0, 90, 0],         // start — valley floor
+        [60, 95, 3],
+        [130, 80, 8],       // climbing
+        [180, 50, 12],      // high ridge
+        [200, -10, 10],     // still high
+        [180, -70, 6],      // descending
+        [140, -110, 2],     // dropping into canyon
+        [80, -130, 0],      // canyon floor
+        [20, -120, 2],      // slight rise
+        [-30, -90, 5],      // climbing
+        [-50, -50, 8],      // mid-height
+        [-80, -20, 10],     // higher
+        [-120, -40, 13],    // canyon rim — peak
+        [-150, -80, 10],    // descending
+        [-190, -120, 6],    // coming down
+        [-230, -130, 3],    // low section
+        [-270, -100, 1],    // near valley
+        [-290, -50, 0],     // valley floor
+        [-280, 10, 2],      // gentle rise
+        [-250, 60, 4],      // climbing
+        [-210, 90, 3],      // slight descent
+        [-160, 100, 2],     // lowering
+        [-100, 95, 1],      // approaching start
+        [-50, 100, 0],      // back to start height
     ];
 
-    const points = pts.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    const points = pts.map(([x, z, y]) => new THREE.Vector3(x, y, z));
     return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
 }
 
-// Tokyo Sprint: Tight city grid with chicanes
+// Tokyo Sprint: Tight city grid with a slight overpass section
 function buildTokyoTrack() {
     const pts = [
-        [0, 100],         // start straight heading east
-        [60, 100],
-        [120, 95],
-        [160, 70],        // right 90° heading south
-        [165, 30],
-        [160, -20],       // long straight south
-        [155, -70],
-        [130, -110],      // left 90° heading east
-        [170, -120],
-        [210, -115],      // chicane right-left
-        [230, -90],
-        [220, -60],
-        [230, -30],       // hard right heading south
-        [235, 10],
-        [220, 50],        // left hairpin heading north then west
-        [190, 70],
-        [150, 60],
-        [110, 30],        // heading west-southwest
-        [70, 10],
-        [30, -10],        // S-curve section
-        [-10, 10],
-        [-50, 30],
-        [-80, 60],        // sweeping left heading north
-        [-90, 90],
-        [-70, 110],       // final right back to start
-        [-30, 105],
+        [0, 100, 0],         // start straight
+        [60, 100, 0],
+        [120, 95, 1],
+        [160, 70, 2],        // slight rise into turns
+        [165, 30, 2],
+        [160, -20, 1],
+        [155, -70, 0],
+        [130, -110, 0],
+        [170, -120, 1],
+        [210, -115, 2],      // overpass section
+        [230, -90, 2],
+        [220, -60, 1],
+        [230, -30, 0],
+        [235, 10, 0],
+        [220, 50, 1],
+        [190, 70, 1],
+        [150, 60, 0],
+        [110, 30, 0],
+        [70, 10, 0],
+        [30, -10, 0],
+        [-10, 10, 0],
+        [-50, 30, 0],
+        [-80, 60, 0],
+        [-90, 90, 0],
+        [-70, 110, 0],
+        [-30, 105, 0],
     ];
 
-    const points = pts.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    const points = pts.map(([x, z, y]) => new THREE.Vector3(x, y, z));
     return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
 }
 
-// Porto Corsa: Sweeping Italian coastal road
+// Porto Corsa: Sweeping Italian coastal road with coastal hills
 function buildPortoCorsaTrack() {
     const pts = [
-        [0, 120],          // start on coastal straight
-        [70, 125],
-        [140, 110],        // gentle right along coast
-        [200, 80],
-        [240, 40],         // sweeping right down the hill
-        [260, -10],
-        [250, -70],
-        [220, -120],       // long left hairpin (harbor turn)
-        [170, -150],
-        [110, -155],
-        [50, -140],        // heading back west along waterfront
-        [0, -110],
-        [-50, -90],
-        [-100, -100],      // gentle S-curve
-        [-150, -130],
-        [-200, -140],      // wide right sweeper
-        [-250, -120],
-        [-280, -80],
-        [-290, -30],       // climbing back north
-        [-280, 30],
-        [-250, 80],        // left-hand uphill sweeper
-        [-210, 110],
-        [-160, 120],
-        [-100, 125],       // long straight back to start
-        [-50, 122],
+        [0, 120, 0],          // start at coast level
+        [70, 125, 2],
+        [140, 110, 5],        // climbing along coast
+        [200, 80, 8],         // hilltop
+        [240, 40, 6],         // descending
+        [260, -10, 3],
+        [250, -70, 1],        // down toward harbor
+        [220, -120, 0],       // harbor turn — lowest
+        [170, -150, 0],
+        [110, -155, 1],
+        [50, -140, 3],        // climbing back
+        [0, -110, 5],
+        [-50, -90, 7],        // ascending
+        [-100, -100, 9],      // hill section
+        [-150, -130, 7],
+        [-200, -140, 4],
+        [-250, -120, 2],
+        [-280, -80, 1],
+        [-290, -30, 0],       // low coastal
+        [-280, 30, 2],        // climbing
+        [-250, 80, 4],        // uphill
+        [-210, 110, 3],
+        [-160, 120, 2],
+        [-100, 125, 1],
+        [-50, 122, 0],        // back to start
     ];
 
-    const points = pts.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    const points = pts.map(([x, z, y]) => new THREE.Vector3(x, y, z));
     return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
 }
 
-// Florida 500: Tri-oval speedway with infield twists
+// Florida 500: Tri-oval speedway with gentle elevation changes
 function buildFlorida500Track() {
     const pts = [
-        [0, 100],          // start/finish straight heading east
-        [60, 100],
-        [120, 95],
-        [170, 80],         // turn 1 (banked right)
-        [200, 50],
-        [210, 10],
-        [200, -30],        // turn 2 (banked right)
-        [170, -60],
-        [130, -70],        // short straight
-        [90, -65],
-        [60, -50],         // dive into infield
-        [40, -20],         // tight left in infield
-        [20, 10],
-        [40, 40],          // chicane right
-        [70, 50],
-        [60, 20],          // tight left
-        [30, -10],
-        [0, -30],          // infield hairpin
-        [-30, -20],
-        [-40, 20],         // climbing back out to oval
-        [-30, 60],
-        [-50, 90],         // turn 3 (banked right onto back straight)
-        [-80, 110],
-        [-120, 115],       // long back straight heading west
-        [-180, 112],
-        [-230, 105],
-        [-260, 90],        // turn 4 (wide banked right)
-        [-275, 60],
-        [-265, 30],
-        [-240, 10],        // short straight heading east back to tri-oval
-        [-200, 15],
-        [-160, 30],
-        [-130, 55],        // back onto front straight
-        [-100, 80],
-        [-60, 95],
+        [0, 100, 0],          // start/finish straight
+        [60, 100, 0],
+        [120, 95, 1],
+        [170, 80, 2],         // turn 1 rise
+        [200, 50, 3],
+        [210, 10, 3],
+        [200, -30, 2],        // turn 2
+        [170, -60, 1],
+        [130, -70, 0],
+        [90, -65, 0],
+        [60, -50, 0],         // infield — flat
+        [40, -20, 1],
+        [20, 10, 2],
+        [40, 40, 2],
+        [70, 50, 1],
+        [60, 20, 1],
+        [30, -10, 0],
+        [0, -30, 0],          // infield hairpin
+        [-30, -20, 0],
+        [-40, 20, 1],
+        [-30, 60, 2],
+        [-50, 90, 3],         // back straight rise
+        [-80, 110, 4],
+        [-120, 115, 4],       // back straight high point
+        [-180, 112, 3],
+        [-230, 105, 2],
+        [-260, 90, 1],
+        [-275, 60, 0],
+        [-265, 30, 0],
+        [-240, 10, 0],
+        [-200, 15, 0],
+        [-160, 30, 0],
+        [-130, 55, 0],
+        [-100, 80, 0],
+        [-60, 95, 0],
     ];
 
-    const points = pts.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    const points = pts.map(([x, z, y]) => new THREE.Vector3(x, y, z));
     return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
 }
 
@@ -395,7 +429,7 @@ function buildCanyonScenery(curve, roadWidth, frames) {
         const geo = new THREE.CylinderGeometry(width * 0.5, width, height, 5 + Math.floor(Math.random() * 4));
         const mat = new THREE.MeshLambertMaterial({ color: rockColors[Math.floor(Math.random() * rockColors.length)] });
         const rock = new THREE.Mesh(geo, mat);
-        rock.position.set(pos.x, height / 2, pos.z);
+        rock.position.set(pos.x, pos.y + height / 2, pos.z);
         rock.rotation.y = Math.random() * Math.PI;
         rock.castShadow = true;
         scenery.add(rock);
@@ -407,7 +441,7 @@ function buildCanyonScenery(curve, roadWidth, frames) {
     placeScenery(40, curve, frames, roadWidth, 8, 40, (pos) => {
         const geo = new THREE.CylinderGeometry(0.25, 0.35, 2 + Math.random() * 3, 6);
         const cactus = new THREE.Mesh(geo, cactusMat);
-        cactus.position.set(pos.x, 1.5, pos.z);
+        cactus.position.set(pos.x, pos.y + 1.5, pos.z);
         scenery.add(cactus);
         return cactus;
     });
@@ -439,7 +473,7 @@ function buildTokyoScenery(curve, roadWidth, frames) {
         const color = buildingColors[Math.floor(Math.random() * buildingColors.length)];
         const mat = new THREE.MeshLambertMaterial({ color });
         const building = new THREE.Mesh(geo, mat);
-        building.position.set(pos.x, height / 2, pos.z);
+        building.position.set(pos.x, pos.y + height / 2, pos.z);
         building.rotation.y = Math.random() * Math.PI;
         building.castShadow = true;
         scenery.add(building);
@@ -449,7 +483,7 @@ function buildTokyoScenery(curve, roadWidth, frames) {
             const stripGeo = new THREE.BoxGeometry(width + 0.1, 0.3, depth + 0.1);
             const stripMat = new THREE.MeshBasicMaterial({ color: 0xFF2266 });
             const strip = new THREE.Mesh(stripGeo, stripMat);
-            strip.position.set(pos.x, height * 0.7, pos.z);
+            strip.position.set(pos.x, pos.y + height * 0.7, pos.z);
             strip.rotation.y = building.rotation.y;
             scenery.add(strip);
         }
@@ -476,7 +510,7 @@ function buildPortoCorsaScenery(curve, roadWidth, frames) {
         const houseGeo = new THREE.BoxGeometry(width, height, width);
         const houseMat = new THREE.MeshLambertMaterial({ color: houseColors[Math.floor(Math.random() * houseColors.length)] });
         const house = new THREE.Mesh(houseGeo, houseMat);
-        house.position.set(pos.x, height / 2, pos.z);
+        house.position.set(pos.x, pos.y + height / 2, pos.z);
         house.rotation.y = Math.random() * Math.PI;
         house.castShadow = true;
         scenery.add(house);
@@ -484,7 +518,7 @@ function buildPortoCorsaScenery(curve, roadWidth, frames) {
         const roofGeo = new THREE.ConeGeometry(width * 0.8, 2, 4);
         const roofMat = new THREE.MeshLambertMaterial({ color: roofColors[Math.floor(Math.random() * roofColors.length)] });
         const roof = new THREE.Mesh(roofGeo, roofMat);
-        roof.position.set(pos.x, height + 1, pos.z);
+        roof.position.set(pos.x, pos.y + height + 1, pos.z);
         roof.rotation.y = Math.PI / 4;
         scenery.add(roof);
         return house;
@@ -495,12 +529,12 @@ function buildPortoCorsaScenery(curve, roadWidth, frames) {
     const leafMat = new THREE.MeshLambertMaterial({ color: 0x228B22, side: THREE.DoubleSide });
     placeScenery(30, curve, frames, roadWidth, 8, 25, (pos) => {
         const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 5, 6), trunkMat);
-        trunk.position.set(pos.x, 2.5, pos.z);
+        trunk.position.set(pos.x, pos.y + 2.5, pos.z);
         scenery.add(trunk);
 
         for (let l = 0; l < 5; l++) {
             const leaf = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 0.6), leafMat);
-            leaf.position.set(pos.x, 5.2, pos.z);
+            leaf.position.set(pos.x, pos.y + 5.2, pos.z);
             leaf.rotation.y = (l / 5) * Math.PI * 2;
             leaf.rotation.x = -0.4;
             scenery.add(leaf);
@@ -540,7 +574,7 @@ function buildFloridaScenery(curve, roadWidth, frames) {
         const geo = new THREE.BoxGeometry(5, height, 5);
         const mat = new THREE.MeshLambertMaterial({ color: standColors[Math.floor(Math.random() * standColors.length)] });
         const stand = new THREE.Mesh(geo, mat);
-        stand.position.set(pos.x, height / 2, pos.z);
+        stand.position.set(pos.x, pos.y + height / 2, pos.z);
         stand.castShadow = true;
         scenery.add(stand);
         return stand;
@@ -551,12 +585,12 @@ function buildFloridaScenery(curve, roadWidth, frames) {
     const leafMat = new THREE.MeshLambertMaterial({ color: 0x228B22, side: THREE.DoubleSide });
     placeScenery(25, curve, frames, roadWidth, 8, 30, (pos) => {
         const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.25, 6, 6), trunkMat);
-        trunk.position.set(pos.x, 3, pos.z);
+        trunk.position.set(pos.x, pos.y + 3, pos.z);
         scenery.add(trunk);
 
         for (let l = 0; l < 5; l++) {
             const leaf = new THREE.Mesh(new THREE.PlaneGeometry(3, 0.6), leafMat);
-            leaf.position.set(pos.x, 6.2, pos.z);
+            leaf.position.set(pos.x, pos.y + 6.2, pos.z);
             leaf.rotation.y = (l / 5) * Math.PI * 2;
             leaf.rotation.x = -0.4;
             scenery.add(leaf);
@@ -568,11 +602,11 @@ function buildFloridaScenery(curve, roadWidth, frames) {
     const flagColors = [0xCC2244, 0x2244CC, 0xFFCC00, 0x22CC44];
     placeScenery(24, curve, frames, roadWidth, 4, 2, (pos) => {
         const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 5, 6), new THREE.MeshLambertMaterial({ color: 0x999999 }));
-        pole.position.set(pos.x, 2.5, pos.z);
+        pole.position.set(pos.x, pos.y + 2.5, pos.z);
         scenery.add(pole);
 
         const flag = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.04), new THREE.MeshLambertMaterial({ color: flagColors[Math.floor(Math.random() * flagColors.length)] }));
-        flag.position.set(pos.x + 0.6, 4.8, pos.z);
+        flag.position.set(pos.x + 0.6, pos.y + 4.8, pos.z);
         scenery.add(flag);
         return pole;
     });
@@ -583,6 +617,50 @@ function buildFloridaScenery(curve, roadWidth, frames) {
     scenery.add(new THREE.Mesh(skyGeo, skyMat));
 
     return scenery;
+}
+
+// Build elevation-aware terrain that follows track hills
+function buildTerrain(curve, groundSize, groundColor) {
+    const subdivisions = 60;
+    const geo = new THREE.PlaneGeometry(groundSize, groundSize, subdivisions, subdivisions);
+    geo.rotateX(-Math.PI / 2);
+
+    // Sample track heights at intervals
+    const trackSamples = [];
+    for (let i = 0; i < 200; i++) {
+        trackSamples.push(curve.getPointAt(i / 200));
+    }
+
+    const positions = geo.attributes.position;
+    for (let i = 0; i < positions.count; i++) {
+        const x = positions.getX(i);
+        const z = positions.getZ(i);
+
+        // Find nearest track point
+        let minDistSq = Infinity;
+        let nearestY = 0;
+        for (const sample of trackSamples) {
+            const dx = x - sample.x;
+            const dz = z - sample.z;
+            const distSq = dx * dx + dz * dz;
+            if (distSq < minDistSq) {
+                minDistSq = distSq;
+                nearestY = sample.y;
+            }
+        }
+
+        // Quadratic falloff: terrain matches track near the road, flattens far away
+        const dist = Math.sqrt(minDistSq);
+        const falloffDist = groundSize * 0.3;
+        const falloff = Math.max(0, 1 - (dist / falloffDist) * (dist / falloffDist));
+        positions.setY(i, nearestY * falloff - 0.1);
+    }
+
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshLambertMaterial({ color: groundColor });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.receiveShadow = true;
+    return mesh;
 }
 
 // Build the 3D road mesh and walls for a track
@@ -610,8 +688,8 @@ export function buildTrackMesh(trackData) {
         // Banking: tilt the road cross-section around the center line
         // Raise the center so the low side stays above ground
         const bankLift = Math.abs(Math.sin(bank)) * (roadWidth / 2);
-        left.y = 0.01 + bankLift - Math.sin(bank) * (roadWidth / 2);
-        rightPt.y = 0.01 + bankLift + Math.sin(bank) * (roadWidth / 2);
+        left.y = point.y + 0.01 + bankLift - Math.sin(bank) * (roadWidth / 2);
+        rightPt.y = point.y + 0.01 + bankLift + Math.sin(bank) * (roadWidth / 2);
 
         roadVertices.push(left.x, left.y, left.z);
         roadVertices.push(rightPt.x, rightPt.y, rightPt.z);
@@ -644,7 +722,7 @@ export function buildTrackMesh(trackData) {
         const point = curve.getPointAt(t);
         const clBank = frames.bankAngles[i];
         const clBankLift = Math.abs(Math.sin(clBank)) * (roadWidth / 2);
-        centerVertices.push(point.x, 0.05 + clBankLift, point.z);
+        centerVertices.push(point.x, point.y + 0.05 + clBankLift, point.z);
     }
     const lineGeo = new THREE.BufferGeometry();
     lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(centerVertices, 3));
@@ -670,8 +748,8 @@ export function buildTrackMesh(trackData) {
             const outer = point.clone().add(right.clone().multiplyScalar(side * (roadWidth / 2 + curbWidth)));
             // Follow road banking for curb Y positions (include bankLift to match road surface)
             const curbBankLift = Math.abs(Math.sin(bank)) * (roadWidth / 2);
-            inner.y = 0.03 + curbBankLift + Math.sin(bank) * side * (roadWidth / 2 - 0.2);
-            outer.y = 0.03 + curbBankLift + Math.sin(bank) * side * (roadWidth / 2 + curbWidth);
+            inner.y = point.y + 0.03 + curbBankLift + Math.sin(bank) * side * (roadWidth / 2 - 0.2);
+            outer.y = point.y + 0.03 + curbBankLift + Math.sin(bank) * side * (roadWidth / 2 + curbWidth);
 
             // For the left side (side=-1), swap inner/outer vertex order
             // to fix triangle winding so the face points up
@@ -717,26 +795,22 @@ export function buildTrackMesh(trackData) {
     const startGeo = new THREE.BoxGeometry(roadWidth, 0.05, 2);
     const startMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
     const startLine = new THREE.Mesh(startGeo, startMat);
-    startLine.position.set(startPoint.x, 0.06, startPoint.z);
+    startLine.position.set(startPoint.x, startPoint.y + 0.06, startPoint.z);
     startLine.rotation.y = angle;
     group.add(startLine);
 
     const checkerGeo = new THREE.BoxGeometry(roadWidth / 2, 0.06, 1);
     const checkerMat = new THREE.MeshLambertMaterial({ color: 0x000000 });
     const checker = new THREE.Mesh(checkerGeo, checkerMat);
-    checker.position.set(startPoint.x, 0.07, startPoint.z);
+    checker.position.set(startPoint.x, startPoint.y + 0.07, startPoint.z);
     checker.rotation.y = angle;
     group.add(checker);
 
-    // Ground plane - size based on track extents
+    // Elevation-aware terrain ground
     const groundSize = trackData.groundSize || 600;
     const groundColor = trackData.groundColor || 0xC4A86B;
-    const groundGeo = new THREE.PlaneGeometry(groundSize, groundSize);
-    const groundMat = new THREE.MeshLambertMaterial({ color: groundColor });
-    const ground = new THREE.Mesh(groundGeo, groundMat);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.01;
-    ground.receiveShadow = true;
+    cacheTerrainSamples(curve);
+    const ground = buildTerrain(curve, groundSize, groundColor);
     group.add(ground);
 
     // Build invisible walls for track boundaries
@@ -767,8 +841,8 @@ function buildInvisibleWalls(curve, roadWidth, frames) {
             const offset = right.clone().multiplyScalar(side * (roadWidth / 2 + 0.5));
             const base = point.clone().add(offset);
 
-            wallVertices.push(base.x, 0, base.z);
-            wallVertices.push(base.x, wallHeight, base.z);
+            wallVertices.push(base.x, point.y, base.z);
+            wallVertices.push(base.x, point.y + wallHeight, base.z);
 
             if (i < wallSegments) {
                 const idx = i * 2;
@@ -803,13 +877,13 @@ function buildDesertScenery(curve, roadWidth, frames) {
 
     placeScenery(30, curve, frames, roadWidth, 8, 30, (pos) => {
         const cactus = new THREE.Mesh(cactusGeo, cactusMat);
-        cactus.position.set(pos.x, 2, pos.z);
+        cactus.position.set(pos.x, pos.y + 2, pos.z);
         cactus.castShadow = true;
         scenery.add(cactus);
 
         if (Math.random() > 0.4) {
             const arm = new THREE.Mesh(cactusArmGeo, cactusMat);
-            arm.position.set(pos.x + 0.8, 2.5, pos.z);
+            arm.position.set(pos.x + 0.8, pos.y + 2.5, pos.z);
             arm.rotation.z = Math.PI / 3;
             scenery.add(arm);
         }
@@ -865,7 +939,7 @@ function buildStadiumScenery(curve, roadWidth, frames) {
         const standGeo = new THREE.BoxGeometry(6, height, 6);
         const mat = Math.random() > 0.7 ? standAccentMat : standMat;
         const stand = new THREE.Mesh(standGeo, mat);
-        stand.position.set(pos.x, height / 2, pos.z);
+        stand.position.set(pos.x, pos.y + height / 2, pos.z);
         stand.castShadow = true;
         scenery.add(stand);
         return stand;
@@ -886,13 +960,13 @@ function buildStadiumScenery(curve, roadWidth, frames) {
         const poleGeo = new THREE.CylinderGeometry(0.1, 0.1, 6, 6);
         const poleMat = new THREE.MeshLambertMaterial({ color: 0x888888 });
         const pole = new THREE.Mesh(poleGeo, poleMat);
-        pole.position.set(pos.x, 3, pos.z);
+        pole.position.set(pos.x, pos.y + 3, pos.z);
         scenery.add(pole);
 
         const flagGeo = new THREE.BoxGeometry(1.5, 1, 0.05);
         const flagMat = new THREE.MeshLambertMaterial({ color: flagColors[Math.floor(Math.random() * flagColors.length)] });
         const flag = new THREE.Mesh(flagGeo, flagMat);
-        flag.position.set(pos.x + 0.8, 5.5, pos.z);
+        flag.position.set(pos.x + 0.8, pos.y + 5.5, pos.z);
         scenery.add(flag);
         return pole;
     });

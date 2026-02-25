@@ -19,6 +19,9 @@ export class CarRacer {
         this.destroyed = false;    // permanently destroyed by a hard hit
         this.curveLength = curve.getLength(); // cache for collision response
 
+        // Set rotation order for correct yaw-pitch-roll with hills
+        this.model.rotation.order = 'YXZ';
+
         // Create debug collider wireframe (hidden by default)
         this._createDebugCollider();
 
@@ -78,13 +81,24 @@ export class CarRacer {
 
         this.model.position.set(
             point.x + offset.x,
-            0.2 + bankLift + bankY,
+            point.y + 0.2 + bankLift + bankY,
             point.z + offset.z
         );
 
         // Face the direction of travel, yaw nose into steering direction
         const angle = Math.atan2(tangent.x, tangent.z);
         this.model.rotation.y = angle - this.steering * 0.15;
+
+        // Pitch: tilt nose up/down on hills using the full 3D tangent
+        if (this.frames.tangents3D) {
+            const t3d0 = this.frames.tangents3D[idx0];
+            const t3d1 = this.frames.tangents3D[idx1];
+            const ty = t3d0.y + (t3d1.y - t3d0.y) * frac;
+            const txz0 = Math.sqrt(t3d0.x * t3d0.x + t3d0.z * t3d0.z);
+            const txz1 = Math.sqrt(t3d1.x * t3d1.x + t3d1.z * t3d1.z);
+            const txz = txz0 + (txz1 - txz0) * frac;
+            this.model.rotation.x = -Math.atan2(ty, txz);
+        }
 
         // Roll car to match road banking
         this.model.rotation.z = -bankAngle;
@@ -490,7 +504,10 @@ export class RaceCamera {
         this.targetPosition.copy(carPos).add(cameraOffset);
         this.targetLookAt.copy(carPos).add(new THREE.Vector3(0, 1, 0));
 
-        this.camera.position.lerp(this.targetPosition, this.smoothFactor);
+        // Split lerp: faster Y tracking to prevent camera clipping through hills
+        this.camera.position.x += (this.targetPosition.x - this.camera.position.x) * this.smoothFactor;
+        this.camera.position.z += (this.targetPosition.z - this.camera.position.z) * this.smoothFactor;
+        this.camera.position.y += (this.targetPosition.y - this.camera.position.y) * 0.12;
         this.camera.lookAt(this.targetLookAt);
     }
 }
