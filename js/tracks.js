@@ -12,6 +12,7 @@ export const TRACK_DATA = [
         maxBankAngle: 0.12,   // ~7 degrees - gentle banking
         buildTrack: buildOvalTrack,
         buildScenery: buildDesertScenery,
+        ramps: [{ t: 0.25, side: 1 }, { t: 0.75, side: -1 }],
     },
     {
         id: 'circuit',
@@ -23,6 +24,7 @@ export const TRACK_DATA = [
         maxBankAngle: 0.28,   // ~16 degrees - NASCAR-style banking
         buildTrack: buildCircuitTrack,
         buildScenery: buildStadiumScenery,
+        ramps: [{ t: 0.12, side: 1 }, { t: 0.62, side: -1 }],
     },
     {
         id: 'willys',
@@ -35,6 +37,7 @@ export const TRACK_DATA = [
         groundSize: 900,
         buildTrack: buildWillysButteTrack,
         buildScenery: buildCanyonScenery,
+        ramps: [{ t: 0.15, side: -1 }, { t: 0.55, side: 1 }],
     },
     {
         id: 'tokyo',
@@ -48,6 +51,7 @@ export const TRACK_DATA = [
         groundColor: 0x444444,
         buildTrack: buildTokyoTrack,
         buildScenery: buildTokyoScenery,
+        ramps: [{ t: 0.35, side: 1 }],
     },
     {
         id: 'portocorsa',
@@ -61,6 +65,7 @@ export const TRACK_DATA = [
         groundColor: 0x3a7d2a,
         buildTrack: buildPortoCorsaTrack,
         buildScenery: buildPortoCorsaScenery,
+        ramps: [{ t: 0.1, side: -1 }, { t: 0.5, side: 1 }],
     },
     {
         id: 'florida',
@@ -74,6 +79,7 @@ export const TRACK_DATA = [
         groundColor: 0x3a7d2a,
         buildTrack: buildFlorida500Track,
         buildScenery: buildFloridaScenery,
+        ramps: [{ t: 0.3, side: 1 }, { t: 0.7, side: -1 }],
     },
 ];
 
@@ -335,36 +341,36 @@ function buildPortoCorsaTrack() {
     return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
 }
 
-// Florida 500: Tri-oval speedway with gentle elevation changes
+// Florida 500: Tri-oval speedway — gentle hills on outer oval, flat infield
 function buildFlorida500Track() {
     const pts = [
         [0, 100, 0],          // start/finish straight
         [60, 100, 0],
-        [120, 95, 1],
-        [170, 80, 2],         // turn 1 rise
-        [200, 50, 3],
-        [210, 10, 3],
-        [200, -30, 2],        // turn 2
-        [170, -60, 1],
+        [120, 95, 0],
+        [170, 80, 1],         // turn 1 slight rise
+        [200, 50, 1],
+        [210, 10, 1],
+        [200, -30, 1],        // turn 2
+        [170, -60, 0],
         [130, -70, 0],
         [90, -65, 0],
-        [60, -50, 0],         // infield — flat
-        [40, -20, 1],
-        [20, 10, 2],
-        [40, 40, 2],
-        [70, 50, 1],
-        [60, 20, 1],
+        [60, -50, 0],         // infield — completely flat
+        [40, -20, 0],
+        [20, 10, 0],
+        [40, 40, 0],
+        [70, 50, 0],
+        [60, 20, 0],
         [30, -10, 0],
         [0, -30, 0],          // infield hairpin
         [-30, -20, 0],
-        [-40, 20, 1],
-        [-30, 60, 2],
-        [-50, 90, 3],         // back straight rise
-        [-80, 110, 4],
-        [-120, 115, 4],       // back straight high point
-        [-180, 112, 3],
-        [-230, 105, 2],
-        [-260, 90, 1],
+        [-40, 20, 0],
+        [-30, 60, 0],
+        [-50, 90, 1],         // back straight gentle rise
+        [-80, 110, 2],
+        [-120, 115, 2],       // back straight — modest hill
+        [-180, 112, 1],
+        [-230, 105, 1],
+        [-260, 90, 0],
         [-275, 60, 0],
         [-265, 30, 0],
         [-240, 10, 0],
@@ -820,6 +826,89 @@ export function buildTrackMesh(trackData) {
     // Build scenery
     const scenery = trackData.buildScenery(curve, roadWidth, frames);
     group.add(scenery);
+
+    // Build ramps (jump pads)
+    if (trackData.ramps && trackData.ramps.length > 0) {
+        frames.ramps = [];
+        const curveLen = curve.getLength();
+
+        for (const rampDef of trackData.ramps) {
+            const rt = rampDef.t;
+            const side = rampDef.side || 1; // 1 = right, -1 = left
+            const rampPoint = curve.getPointAt(rt);
+            const idx = Math.floor(rt * 200) % 201;
+            const tangent = frames.tangents[idx];
+            const right = frames.binormals[idx];
+            const bank = frames.bankAngles[idx];
+
+            const rampLen = 8;
+            const rampH = 0.7;
+            const rampW = roadWidth * 0.4; // half-road width
+            const hw = rampW / 2;
+
+            // Wedge geometry: flat at back, rising to rampH at front
+            const positions = new Float32Array([
+                // Slope surface (2 tris)
+                -hw, 0, 0,      -hw, rampH, rampLen, hw, rampH, rampLen,
+                -hw, 0, 0,      hw, rampH, rampLen,  hw, 0, 0,
+                // Bottom face (2 tris)
+                -hw, 0, 0,      hw, 0, rampLen,      -hw, 0, rampLen,
+                -hw, 0, 0,      hw, 0, 0,            hw, 0, rampLen,
+                // Front face — vertical wall (2 tris)
+                -hw, 0, rampLen, hw, rampH, rampLen,  -hw, rampH, rampLen,
+                -hw, 0, rampLen, hw, 0, rampLen,      hw, rampH, rampLen,
+                // Left side triangle
+                -hw, 0, 0,      -hw, 0, rampLen,     -hw, rampH, rampLen,
+                // Right side triangle
+                hw, 0, 0,       hw, rampH, rampLen,   hw, 0, rampLen,
+            ]);
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geo.computeVertexNormals();
+
+            // Orange/yellow striped ramp using vertex colors
+            const colors = new Float32Array(positions.length);
+            for (let vi = 0; vi < positions.length; vi += 9) {
+                const triIdx = vi / 9;
+                const isOrange = triIdx % 2 === 0;
+                const cr = isOrange ? 1.0 : 1.0;
+                const cg = isOrange ? 0.53 : 0.8;
+                const cb = isOrange ? 0.0 : 0.0;
+                for (let k = 0; k < 3; k++) {
+                    colors[vi + k * 3] = cr;
+                    colors[vi + k * 3 + 1] = cg;
+                    colors[vi + k * 3 + 2] = cb;
+                }
+            }
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+            const mat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
+            const rampMesh = new THREE.Mesh(geo, mat);
+            rampMesh.castShadow = true;
+
+            // Orient: yaw to match track tangent direction
+            const yAngle = Math.atan2(tangent.x, tangent.z);
+            rampMesh.rotation.order = 'YXZ';
+            rampMesh.rotation.y = yAngle;
+
+            // Offset to one side of the road (side=1 → right, side=-1 → left)
+            const lateralOffset = right.clone().multiplyScalar(side * roadWidth * 0.25);
+            const bankLift = Math.abs(Math.sin(bank)) * (roadWidth / 2);
+            rampMesh.position.set(
+                rampPoint.x - tangent.x * rampLen + lateralOffset.x,
+                rampPoint.y + 0.02 + bankLift,
+                rampPoint.z - tangent.z * rampLen + lateralOffset.z
+            );
+
+            group.add(rampMesh);
+
+            // Trigger at the BASE of the ramp so cars jump immediately on contact
+            const rampLenT = rampLen / curveLen;
+            const triggerT = ((rt - rampLenT) % 1 + 1) % 1;
+            frames.ramps.push({ t: rt, triggerT, side });
+        }
+    }
 
     return { group, curve, frames, roadWidth };
 }

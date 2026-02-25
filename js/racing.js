@@ -45,6 +45,11 @@ export class CarRacer {
         this.finishTime = 0;
         this.totalLaps = 3;
 
+        // Jump / ramp physics
+        this.jumpVelocity = 0;
+        this.jumpHeight = 0;
+        this.isAirborne = false;
+
         this.updatePosition();
     }
 
@@ -81,7 +86,7 @@ export class CarRacer {
 
         this.model.position.set(
             point.x + offset.x,
-            point.y + 0.2 + bankLift + bankY,
+            point.y + 0.2 + bankLift + bankY + this.jumpHeight,
             point.z + offset.z
         );
 
@@ -89,19 +94,24 @@ export class CarRacer {
         const angle = Math.atan2(tangent.x, tangent.z);
         this.model.rotation.y = angle - this.steering * 0.15;
 
-        // Pitch: tilt nose up/down on hills using the full 3D tangent
-        if (this.frames.tangents3D) {
-            const t3d0 = this.frames.tangents3D[idx0];
-            const t3d1 = this.frames.tangents3D[idx1];
-            const ty = t3d0.y + (t3d1.y - t3d0.y) * frac;
-            const txz0 = Math.sqrt(t3d0.x * t3d0.x + t3d0.z * t3d0.z);
-            const txz1 = Math.sqrt(t3d1.x * t3d1.x + t3d1.z * t3d1.z);
-            const txz = txz0 + (txz1 - txz0) * frac;
-            this.model.rotation.x = -Math.atan2(ty, txz);
-        }
+        // Pitch: airborne cars tilt based on jump velocity, grounded cars follow terrain
+        if (this.isAirborne) {
+            this.model.rotation.x = -Math.atan2(this.jumpVelocity * 0.04, 1);
+            this.model.rotation.z = 0; // no banking in air
+        } else {
+            if (this.frames.tangents3D) {
+                const t3d0 = this.frames.tangents3D[idx0];
+                const t3d1 = this.frames.tangents3D[idx1];
+                const ty = t3d0.y + (t3d1.y - t3d0.y) * frac;
+                const txz0 = Math.sqrt(t3d0.x * t3d0.x + t3d0.z * t3d0.z);
+                const txz1 = Math.sqrt(t3d1.x * t3d1.x + t3d1.z * t3d1.z);
+                const txz = txz0 + (txz1 - txz0) * frac;
+                this.model.rotation.x = -Math.atan2(ty, txz);
+            }
 
-        // Roll car to match road banking
-        this.model.rotation.z = -bankAngle;
+            // Roll car to match road banking
+            this.model.rotation.z = -bankAngle;
+        }
 
         // Spin wheels (rolling)
         const wheels = this.model.userData.wheels;
@@ -133,6 +143,16 @@ export class CarRacer {
         if (this.finished) {
             this.speed *= Math.pow(0.98, step);
             this.trackProgress += this.speed * step;
+            // Keep jump physics running for finished cars mid-air
+            if (this.isAirborne) {
+                this.jumpHeight += this.jumpVelocity * dt;
+                this.jumpVelocity -= 25 * dt;
+                if (this.jumpHeight <= 0) {
+                    this.jumpHeight = 0;
+                    this.jumpVelocity = 0;
+                    this.isAirborne = false;
+                }
+            }
             this.updatePosition();
             return;
         }
@@ -156,8 +176,43 @@ export class CarRacer {
         // Move along track
         this.trackProgress += this.speed * step;
 
+        // Jump physics (gravity + landing)
+        if (this.isAirborne) {
+            this.jumpHeight += this.jumpVelocity * dt;
+            this.jumpVelocity -= 25 * dt; // gravity
+            if (this.jumpHeight <= 0) {
+                this.jumpHeight = 0;
+                this.jumpVelocity = 0;
+                this.isAirborne = false;
+            }
+        }
+
+        // Ramp detection — check if we crossed a ramp trigger point (at ramp base)
+        const currentProgress = ((this.trackProgress % 1) + 1) % 1;
+        if (this.frames.ramps && !this.isAirborne) {
+            for (const ramp of this.frames.ramps) {
+                const trigger = ramp.triggerT != null ? ramp.triggerT : ramp.t;
+                const prev = this.lastProgress;
+                const curr = currentProgress;
+                let crossed = false;
+                if (prev <= curr) {
+                    crossed = prev < trigger && curr >= trigger;
+                } else {
+                    // Wrapped around (crossing lap boundary)
+                    crossed = prev < trigger || curr >= trigger;
+                }
+                // Must be fast enough AND on the correct side of the road
+                const onRampSide = !ramp.side || (this.lateralOffset * ramp.side > -0.2);
+                if (crossed && this.speed > this.maxSpeed * 0.3 && onRampSide) {
+                    const speedFrac = this.speed / this.maxSpeed;
+                    this.jumpVelocity = 6 + speedFrac * 8;
+                    this.isAirborne = true;
+                    this.jumpHeight = 0.01;
+                }
+            }
+        }
+
         // Lap detection
-        const currentProgress = this.trackProgress % 1;
         if (this.lastProgress > 0.9 && currentProgress < 0.1) {
             this.lap++;
         }
@@ -260,9 +315,10 @@ export class CarRacer {
                 const a = racers[i];
                 const b = racers[j];
 
-                // Skip invisible (currently exploded) or destroyed cars
+                // Skip invisible (currently exploded), destroyed, or airborne cars
                 if (!a.model.visible || !b.model.visible) continue;
                 if (a.destroyed || b.destroyed) continue;
+                if (a.isAirborne || b.isAirborne) continue;
 
                 // Quick circle pre-check (skip if too far for any possible overlap)
                 const dx = b.model.position.x - a.model.position.x;
