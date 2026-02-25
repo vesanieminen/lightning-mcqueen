@@ -3,6 +3,7 @@ import { CAR_DATA, createCarModel } from './cars.js';
 import { TRACK_DATA, buildTrackMesh } from './tracks.js';
 import { CarRacer, Controls, RaceCamera } from './racing.js';
 import { AIDriver } from './ai.js';
+import { DebrisManager } from './debris.js';
 import {
     showTitleScreen, showCharacterSelect, showTrackSelect,
     showRaceHUD, showCountdown, updateHUD, showResults,
@@ -10,7 +11,7 @@ import {
 } from './ui.js';
 import {
     initAudio, startEngineSound, updateEngineSound, stopEngineSound,
-    playCountdownBeep, playLapSound, playWinSound, playHitSound
+    playCountdownBeep, playLapSound, playWinSound, playHitSound, playCrashSound
 } from './sounds.js';
 
 // Game states
@@ -195,31 +196,38 @@ class Game {
         const playerModel = createCarModel(playerCarData, true);
         this.scene.add(playerModel);
 
-        this.playerRacer = new CarRacer(playerModel, curve, frames, roadWidth, 0, true);
-        this.playerRacer.totalLaps = trackDef.laps;
-        this.allRacers = [this.playerRacer];
-
-        // Create AI cars (other characters)
+        // Create AI cars first (all other characters)
         this.aiDrivers = [];
         const aiCars = CAR_DATA.filter(c => c.id !== this.selectedCarId);
-        const numAI = Math.min(aiCars.length, 5); // up to 5 AI opponents
+        const numAI = aiCars.length; // all characters race
+
+        // Player starts at the very back of the grid
+        const playerStartOffset = -0.005 * (numAI + 1);
+        this.playerRacer = new CarRacer(playerModel, curve, frames, roadWidth, playerStartOffset, true);
+        this.playerRacer.totalLaps = trackDef.laps;
+        this.allRacers = [this.playerRacer];
 
         for (let i = 0; i < numAI; i++) {
             const aiData = aiCars[i];
             const aiModel = createCarModel(aiData, false);
             this.scene.add(aiModel);
 
-            // Stagger AI starting positions behind player
-            const startOffset = -0.01 * (i + 1); // behind the player
+            // AI cars start ahead of player, staggered in rows
+            const startOffset = -0.005 * i;
             const aiRacer = new CarRacer(aiModel, curve, frames, roadWidth, startOffset, false);
             aiRacer.totalLaps = trackDef.laps;
 
-            // Give AI different lane positions
+            // Spread AI across 3 lanes in a grid pattern
             aiRacer.lateralOffset = ((i % 3) - 1) * 0.4;
 
             const aiDriver = new AIDriver(aiRacer);
             this.aiDrivers.push(aiDriver);
             this.allRacers.push(aiRacer);
+        }
+
+        // Debris system
+        if (!this.debrisManager) {
+            this.debrisManager = new DebrisManager(this.scene);
         }
 
         // Controls
@@ -264,6 +272,7 @@ class Game {
     cleanupRace() {
         stopEngineSound();
         hidePauseMenu();
+        if (this.debrisManager) this.debrisManager.clear();
 
         // Remove track and cars from scene
         while (this.scene.children.length > 3) {
@@ -317,17 +326,55 @@ class Game {
             updateEngineSound(this.playerRacer.speed / this.playerRacer.maxSpeed);
         }
 
-        // Update AI
+        // Update AI (skip destroyed cars)
         for (const ai of this.aiDrivers) {
+            if (ai.racer.destroyed) continue;
             ai.update(dt, this.raceElapsed);
         }
 
         // Resolve car-to-car collisions
-        const hadPlayerCollision = CarRacer.resolveCollisions(this.allRacers);
-        if (hadPlayerCollision) playHitSound();
+        const { playerHit, explodedRacers } = CarRacer.resolveCollisions(this.allRacers);
+
+        // Only explode + destroy on a genuinely hard ram (fast + steering into them).
+        // All other collisions are just bumps with a tap sound.
+        if (explodedRacers.length > 0) {
+            const steer = this.controls ? Math.abs(this.controls.getSteerInput()) : 0;
+            const isHardHit = this.playerRacer.speed > this.playerRacer.maxSpeed * 0.9
+                           && steer > 0.5;
+
+            if (isHardHit) {
+                playCrashSound();
+                for (const racer of explodedRacers) {
+                    const carDef = CAR_DATA.find(c => c.id === racer.model.userData.carId);
+                    const color = carDef ? carDef.bodyColor : 0x888888;
+                    this.debrisManager.explode(racer.model.position.clone(), racer.model.rotation.y, color);
+                    racer.destroyed = true;
+                    racer.model.visible = false;
+                    racer.speed = 0;
+                    setTimeout(() => playLapSound(), 300);
+                }
+
+                // Win condition: all AI cars destroyed
+                if (this.aiDrivers.every(ai => ai.racer.destroyed) && !this.raceFinished) {
+                    this.raceFinished = true;
+                    this.playerRacer.finished = true;
+                    this.playerRacer.finishTime = this.raceElapsed;
+                    this.finishOrder = [this.playerRacer];
+                    setTimeout(() => this.enterState(STATES.RESULTS), 2000);
+                }
+            } else {
+                playHitSound();
+            }
+        } else if (playerHit) {
+            playHitSound();
+        }
+
+        // Update flying debris physics
+        if (this.debrisManager) this.debrisManager.update(dt);
 
         // Check for lap completion / finish
         for (const racer of this.allRacers) {
+            if (racer.destroyed) continue;
             if (!racer.finished && racer.lap >= racer.totalLaps) {
                 racer.finished = true;
                 racer.finishTime = this.raceElapsed;
@@ -335,8 +382,9 @@ class Game {
             }
         }
 
-        // Calculate positions
-        const sorted = [...this.allRacers].sort((a, b) => b.getEffectiveDistance() - a.getEffectiveDistance());
+        // Calculate positions (exclude destroyed cars)
+        const activeRacers = this.allRacers.filter(r => !r.destroyed);
+        const sorted = [...activeRacers].sort((a, b) => b.getEffectiveDistance() - a.getEffectiveDistance());
         const playerPosition = sorted.indexOf(this.playerRacer) + 1;
 
         // Update HUD
@@ -344,7 +392,7 @@ class Game {
             this.playerRacer.lap,
             this.playerRacer.totalLaps,
             playerPosition,
-            this.allRacers.length
+            activeRacers.length
         );
 
         // Check if race is over (all finished or player finished)
@@ -354,7 +402,7 @@ class Game {
             setTimeout(() => {
                 // Fill in any unfinished racers by current position
                 for (const racer of sorted) {
-                    if (!this.finishOrder.includes(racer)) {
+                    if (!racer.destroyed && !this.finishOrder.includes(racer)) {
                         this.finishOrder.push(racer);
                     }
                 }

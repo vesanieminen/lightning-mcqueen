@@ -15,6 +15,8 @@ export class CarRacer {
         this.roadWidth = roadWidth;
         this.isPlayer = isPlayer;
         this.colliding = false;
+        this._lastExplodeTime = 0; // timestamp (ms) of last explosion — debounce per car
+        this.destroyed = false;    // permanently destroyed by a hard hit
         this.curveLength = curve.getLength(); // cache for collision response
 
         // Create debug collider wireframe (hidden by default)
@@ -229,17 +231,24 @@ export class CarRacer {
         };
     }
 
-    // Resolve collisions between all racers using OBB physics
-    // Returns true if the player car was involved in a collision
+    // Resolve collisions between all racers using OBB physics.
+    // Returns { playerHit, explodedRacers } where explodedRacers are AI cars
+    // newly hit by the player (4s cooldown per car).
     static resolveCollisions(racers) {
         // Reset collision flag for debug coloring
         for (const r of racers) r.colliding = false;
         let playerHit = false;
+        const explodedRacers = [];
+        const now = Date.now();
 
         for (let i = 0; i < racers.length; i++) {
             for (let j = i + 1; j < racers.length; j++) {
                 const a = racers[i];
                 const b = racers[j];
+
+                // Skip invisible (currently exploded) or destroyed cars
+                if (!a.model.visible || !b.model.visible) continue;
+                if (a.destroyed || b.destroyed) continue;
 
                 // Quick circle pre-check (skip if too far for any possible overlap)
                 const dx = b.model.position.x - a.model.position.x;
@@ -252,7 +261,15 @@ export class CarRacer {
 
                 a.colliding = true;
                 b.colliding = true;
-                if (a.isPlayer || b.isPlayer) playerHit = true;
+                if (a.isPlayer || b.isPlayer) {
+                    playerHit = true;
+                    // Track which AI car was newly hit for the explosion effect
+                    const aiRacer = a.isPlayer ? b : a;
+                    if (!aiRacer.isPlayer && now - aiRacer._lastExplodeTime > 4000) {
+                        aiRacer._lastExplodeTime = now;
+                        explodedRacers.push(aiRacer);
+                    }
+                }
 
                 const { overlap, nx, nz } = hit;
 
@@ -316,7 +333,7 @@ export class CarRacer {
             }
         }
 
-        return playerHit;
+        return { playerHit, explodedRacers };
     }
 }
 

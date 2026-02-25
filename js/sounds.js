@@ -129,6 +129,62 @@ export function playHitSound() {
     ping.stop(now + 0.12);
 }
 
+// Big car explosion crash sound
+export function playCrashSound() {
+    const ctx = getCtx();
+    const now = ctx.currentTime;
+
+    // Explosion noise burst (full-spectrum)
+    const burstSize = ctx.sampleRate * 0.55;
+    const burstBuf = ctx.createBuffer(1, burstSize, ctx.sampleRate);
+    const burstData = burstBuf.getChannelData(0);
+    for (let i = 0; i < burstSize; i++) {
+        burstData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / burstSize, 1.8);
+    }
+    const burst = ctx.createBufferSource();
+    burst.buffer = burstBuf;
+    const burstGain = ctx.createGain();
+    burstGain.gain.value = 0.45;
+    burst.connect(burstGain);
+    burstGain.connect(ctx.destination);
+    burst.start(now);
+    burst.stop(now + 0.55);
+
+    // Deep bass boom
+    const boom = ctx.createOscillator();
+    const boomGain = ctx.createGain();
+    boom.type = 'sine';
+    boom.frequency.setValueAtTime(90, now);
+    boom.frequency.exponentialRampToValueAtTime(28, now + 0.45);
+    boomGain.gain.setValueAtTime(0.55, now);
+    boomGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    boom.connect(boomGain);
+    boomGain.connect(ctx.destination);
+    boom.start(now);
+    boom.stop(now + 0.5);
+
+    // Metal crunch (bandpass noise)
+    const crunchSize = ctx.sampleRate * 0.35;
+    const crunchBuf = ctx.createBuffer(1, crunchSize, ctx.sampleRate);
+    const crunchData = crunchBuf.getChannelData(0);
+    for (let i = 0; i < crunchSize; i++) {
+        crunchData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / crunchSize, 1.2);
+    }
+    const crunch = ctx.createBufferSource();
+    crunch.buffer = crunchBuf;
+    const crunchFilter = ctx.createBiquadFilter();
+    crunchFilter.type = 'bandpass';
+    crunchFilter.frequency.value = 900;
+    crunchFilter.Q.value = 1.8;
+    const crunchGain = ctx.createGain();
+    crunchGain.gain.value = 0.25;
+    crunch.connect(crunchFilter);
+    crunchFilter.connect(crunchGain);
+    crunchGain.connect(ctx.destination);
+    crunch.start(now + 0.05);
+    crunch.stop(now + 0.4);
+}
+
 // Lap completion chime - quick ascending two-note "ding-ding!"
 export function playLapSound() {
     const ctx = getCtx();

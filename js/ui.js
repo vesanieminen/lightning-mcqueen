@@ -335,7 +335,7 @@ export function showCharacterSelect(onSelect) {
         }
     });
 
-    setMenuItems('.car-card.menu-item', 3, () => {
+    setMenuItems('.car-card.menu-item', 4, () => {
         document.getElementById('confirm-car').click();
     }, true);
 }
