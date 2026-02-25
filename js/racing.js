@@ -45,7 +45,8 @@ export class CarRacer {
         this.finishTime = 0;
         this.totalLaps = 3;
         // Cars starting behind the line must not count the first crossing as a lap
-        this._ignoreFirstCross = startOffset > 0.05;
+        const normalizedStart = ((startOffset % 1) + 1) % 1;
+        this._ignoreFirstCross = normalizedStart > 0.05;
 
         // Jump / ramp physics
         this.jumpVelocity = 0;
