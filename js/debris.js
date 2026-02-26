@@ -69,6 +69,48 @@ export class DebrisManager {
         }
     }
 
+    // Spawn a single part flying off (smaller effect than full explosion)
+    spawnPart(position, yRotation, color) {
+        const groundY = Math.max(0, position.y - 0.2);
+
+        // One main piece + 2 small chips
+        const pieces = [
+            [0.6, 0.15, 0.5],   // the detached part
+            [0.2, 0.1, 0.15],   // chip 1
+            [0.15, 0.08, 0.12], // chip 2
+        ];
+
+        for (let idx = 0; idx < pieces.length; idx++) {
+            const [w, h, d] = pieces[idx];
+            const col = idx === 0 ? color : 0x888888;
+
+            const geo = new THREE.BoxGeometry(w, h, d);
+            const mat = new THREE.MeshLambertMaterial({ color: col, transparent: true });
+            const mesh = new THREE.Mesh(geo, mat);
+
+            mesh.position.copy(position);
+            mesh.position.y += 0.2 + Math.random() * 0.3;
+            mesh.rotation.y = yRotation + (Math.random() - 0.5) * 0.6;
+
+            const angle = Math.random() * Math.PI * 2;
+            const speed = 3 + Math.random() * 5;
+
+            this.pieces.push({
+                mesh, mat,
+                vx: Math.cos(angle) * speed,
+                vy: 3 + Math.random() * 5,
+                vz: Math.sin(angle) * speed,
+                ax: (Math.random() - 0.5) * 10,
+                ay: (Math.random() - 0.5) * 10,
+                az: (Math.random() - 0.5) * 10,
+                life: 2.0 + Math.random() * 0.5,
+                groundY,
+            });
+
+            this.scene.add(mesh);
+        }
+    }
+
     update(dt) {
         let i = this.pieces.length;
         while (i--) {

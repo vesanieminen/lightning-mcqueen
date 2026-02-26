@@ -291,6 +291,7 @@ export function createCarModel(carData, isPlayer = false) {
     const bodyGeo = new THREE.BoxGeometry(bW, bH, bL);
     const body = new THREE.Mesh(bodyGeo, bodyMat);
     body.position.y = bodyY;
+    body.userData.partName = 'body';
     group.add(body);
 
     // Upper cabin
@@ -298,6 +299,7 @@ export function createCarModel(carData, isPlayer = false) {
     const cabinGeo = new THREE.BoxGeometry(cW, cH, cL);
     const cabin = new THREE.Mesh(cabinGeo, bodyMat);
     cabin.position.set(0, cabinY, cZ);
+    cabin.userData.partName = 'roof';
     group.add(cabin);
 
     // Windshield
@@ -305,6 +307,7 @@ export function createCarModel(carData, isPlayer = false) {
     const windshieldGeo = new THREE.BoxGeometry(cW + 0.02, cH + 0.02, 0.05);
     const windshield = new THREE.Mesh(windshieldGeo, glassMat);
     windshield.position.set(0, cabinY, wsZ);
+    windshield.userData.partName = 'windshield';
     group.add(windshield);
 
     // Eyes on windshield
@@ -338,6 +341,7 @@ export function createCarModel(carData, isPlayer = false) {
     const smileGeo = new THREE.BoxGeometry(bW * 0.4, 0.08, 0.05);
     const smile = new THREE.Mesh(smileGeo, blackMat);
     smile.position.set(0, bodyY - bH * 0.25, bL * 0.5 + 0.01);
+    smile.userData.partName = 'frontBumper';
     group.add(smile);
 
     // ── Wheels ──────────────────────────────────────────────────────
@@ -389,14 +393,17 @@ export function createCarModel(carData, isPlayer = false) {
         const spoilerGeo = new THREE.BoxGeometry(spW, 0.08, 0.4);
         const spoiler = new THREE.Mesh(spoilerGeo, accentMat);
         spoiler.position.set(0, cabinY + cH * 0.5 + 0.15, preset.axleR - 0.2);
+        spoiler.userData.partName = 'spoiler';
         group.add(spoiler);
 
         const standGeo = new THREE.BoxGeometry(0.08, 0.3, 0.08);
         const sL = new THREE.Mesh(standGeo, accentMat);
         sL.position.set(-spW * 0.38, cabinY + cH * 0.5, preset.axleR - 0.2);
+        sL.userData.partName = 'spoiler';
         group.add(sL);
         const sR = new THREE.Mesh(standGeo, accentMat);
         sR.position.set(spW * 0.38, cabinY + cH * 0.5, preset.axleR - 0.2);
+        sR.userData.partName = 'spoiler';
         group.add(sR);
     }
 
@@ -405,9 +412,11 @@ export function createCarModel(carData, isPlayer = false) {
         const stripeGeo = new THREE.BoxGeometry(0.02, bH * 0.4, bL * 0.6);
         const stripeL = new THREE.Mesh(stripeGeo, accentMat);
         stripeL.position.set(-bW * 0.5 - 0.01, bodyY, 0);
+        stripeL.userData.partName = 'doorLeft';
         group.add(stripeL);
         const stripeR = new THREE.Mesh(stripeGeo, accentMat);
         stripeR.position.set(bW * 0.5 + 0.01, bodyY, 0);
+        stripeR.userData.partName = 'doorRight';
         group.add(stripeR);
     }
 
@@ -416,14 +425,17 @@ export function createCarModel(carData, isPlayer = false) {
         const bedGeo = new THREE.BoxGeometry(bW - 0.1, 0.08, bL * 0.4);
         const bed = new THREE.Mesh(bedGeo, bodyMat);
         bed.position.set(0, bodyY + bH * 0.5, -bL * 0.25);
+        bed.userData.partName = 'hood';
         group.add(bed);
         // Side rails
         const railGeo = new THREE.BoxGeometry(0.08, 0.3, bL * 0.4);
         const rL = new THREE.Mesh(railGeo, accentMat);
         rL.position.set(-bW * 0.45, bodyY + bH * 0.5 + 0.15, -bL * 0.25);
+        rL.userData.partName = 'doorLeft';
         group.add(rL);
         const rR = new THREE.Mesh(railGeo, accentMat);
         rR.position.set(bW * 0.45, bodyY + bH * 0.5 + 0.15, -bL * 0.25);
+        rR.userData.partName = 'doorRight';
         group.add(rR);
     }
 
@@ -433,18 +445,22 @@ export function createCarModel(carData, isPlayer = false) {
         const trimGeo = new THREE.BoxGeometry(0.04, 0.1, bL * 0.85);
         const tL = new THREE.Mesh(trimGeo, chromeMat);
         tL.position.set(-bW * 0.5 - 0.02, bodyY - bH * 0.15, 0);
+        tL.userData.partName = 'doorLeft';
         group.add(tL);
         const tR = new THREE.Mesh(trimGeo, chromeMat);
         tR.position.set(bW * 0.5 + 0.02, bodyY - bH * 0.15, 0);
+        tR.userData.partName = 'doorRight';
         group.add(tR);
         // Flame accent on the side
         const flameMat = new THREE.MeshLambertMaterial({ color: carData.accentColor });
         const flameGeo = new THREE.BoxGeometry(0.03, bH * 0.35, bL * 0.3);
         const fL = new THREE.Mesh(flameGeo, flameMat);
         fL.position.set(-bW * 0.5 - 0.015, bodyY + bH * 0.1, bL * 0.15);
+        fL.userData.partName = 'doorLeft';
         group.add(fL);
         const fR = new THREE.Mesh(flameGeo, flameMat);
         fR.position.set(bW * 0.5 + 0.015, bodyY + bH * 0.1, bL * 0.15);
+        fR.userData.partName = 'doorRight';
         group.add(fR);
     }
 
@@ -454,6 +470,7 @@ export function createCarModel(carData, isPlayer = false) {
         const bigWSGeo = new THREE.BoxGeometry(cW + 0.02, cH * 0.6, 0.05);
         const bigWS = new THREE.Mesh(bigWSGeo, glassMat);
         bigWS.position.set(0, cabinY + cH * 0.3, cZ + cL * 0.5 + 0.03);
+        bigWS.userData.partName = 'windshield';
         group.add(bigWS);
         // Flower accent dots on sides
         const dotMat = new THREE.MeshLambertMaterial({ color: carData.accentColor });
@@ -462,10 +479,12 @@ export function createCarModel(carData, isPlayer = false) {
             const dL = new THREE.Mesh(dotGeo, dotMat);
             dL.position.set(-bW * 0.5 - 0.01, bodyY + bH * 0.2, -0.5 + d * 0.6);
             dL.scale.set(0.3, 1, 1);
+            dL.userData.partName = 'doorLeft';
             group.add(dL);
             const dR = new THREE.Mesh(dotGeo, dotMat);
             dR.position.set(bW * 0.5 + 0.01, bodyY + bH * 0.2, -0.5 + d * 0.6);
             dR.scale.set(0.3, 1, 1);
+            dR.userData.partName = 'doorRight';
             group.add(dR);
         }
     }
@@ -477,15 +496,18 @@ export function createCarModel(carData, isPlayer = false) {
         for (let r = 0; r < 3; r++) {
             const bar = new THREE.Mesh(rackGeo, blackMat);
             bar.position.set(0, cabinY + cH * 0.5 + 0.03, cZ - cL * 0.3 + r * cL * 0.3);
+            bar.userData.partName = 'spoiler';
             group.add(bar);
         }
         // Side rails for roof rack
         const sideRailGeo = new THREE.BoxGeometry(0.06, 0.06, cL * 0.85);
         const srL = new THREE.Mesh(sideRailGeo, blackMat);
         srL.position.set(-cW * 0.42, cabinY + cH * 0.5 + 0.03, cZ);
+        srL.userData.partName = 'spoiler';
         group.add(srL);
         const srR = new THREE.Mesh(sideRailGeo, blackMat);
         srR.position.set(cW * 0.42, cabinY + cH * 0.5 + 0.03, cZ);
+        srR.userData.partName = 'spoiler';
         group.add(srR);
     }
 
@@ -495,21 +517,25 @@ export function createCarModel(carData, isPlayer = false) {
         const noseGeo = new THREE.BoxGeometry(bW * 0.4, bH * 0.6, 0.6);
         const nose = new THREE.Mesh(noseGeo, bodyMat);
         nose.position.set(0, bodyY - bH * 0.1, bL * 0.5 + 0.3);
+        nose.userData.partName = 'hood';
         group.add(nose);
         // Front wing
         const fwGeo = new THREE.BoxGeometry(bW + 0.5, 0.06, 0.35);
         const fw = new THREE.Mesh(fwGeo, accentMat);
         fw.position.set(0, bodyY - bH * 0.3, bL * 0.5 + 0.5);
+        fw.userData.partName = 'frontBumper';
         group.add(fw);
         // Suspension arms (black struts to front wheels)
         const armGeo = new THREE.BoxGeometry(0.06, 0.06, 0.8);
         const armL = new THREE.Mesh(armGeo, blackMat);
         armL.position.set(-preset.track * 0.5, bodyY - bH * 0.2, preset.axleF - 0.3);
         armL.rotation.y = 0.35;
+        armL.userData.partName = 'doorLeft';
         group.add(armL);
         const armR = new THREE.Mesh(armGeo, blackMat);
         armR.position.set(preset.track * 0.5, bodyY - bH * 0.2, preset.axleF - 0.3);
         armR.rotation.y = -0.35;
+        armR.userData.partName = 'doorRight';
         group.add(armR);
     }
 
@@ -519,9 +545,11 @@ export function createCarModel(carData, isPlayer = false) {
         const intakeMat = new THREE.MeshLambertMaterial({ color: 0x333333 });
         const iL = new THREE.Mesh(intakeGeo, intakeMat);
         iL.position.set(-bW * 0.5 - 0.02, bodyY + bH * 0.05, -0.3);
+        iL.userData.partName = 'doorLeft';
         group.add(iL);
         const iR = new THREE.Mesh(intakeGeo, intakeMat);
         iR.position.set(bW * 0.5 + 0.02, bodyY + bH * 0.05, -0.3);
+        iR.userData.partName = 'doorRight';
         group.add(iR);
     }
 
@@ -531,9 +559,11 @@ export function createCarModel(carData, isPlayer = false) {
         const bumperGeo = new THREE.BoxGeometry(bW * 0.85, 0.12, 0.12);
         const bF = new THREE.Mesh(bumperGeo, chromeMat);
         bF.position.set(0, bodyY - bH * 0.3, bL * 0.5 + 0.06);
+        bF.userData.partName = 'frontBumper';
         group.add(bF);
         const bR = new THREE.Mesh(bumperGeo, chromeMat);
         bR.position.set(0, bodyY - bH * 0.3, -bL * 0.5 - 0.06);
+        bR.userData.partName = 'rearBumper';
         group.add(bR);
     }
 
@@ -542,6 +572,7 @@ export function createCarModel(carData, isPlayer = false) {
         const roofGeo = new THREE.SphereGeometry(cW * 0.45, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5);
         const roof = new THREE.Mesh(roofGeo, bodyMat);
         roof.position.set(0, cabinY + cH * 0.35, cZ);
+        roof.userData.partName = 'roof';
         group.add(roof);
     }
 
@@ -550,9 +581,11 @@ export function createCarModel(carData, isPlayer = false) {
     const tailMat = new THREE.MeshLambertMaterial({ color: 0xff0000, emissive: 0x440000 });
     const tailL = new THREE.Mesh(tailGeo, tailMat);
     tailL.position.set(-bW * 0.3, bodyY, -bL * 0.5 - 0.01);
+    tailL.userData.partName = 'rearBumper';
     group.add(tailL);
     const tailR = new THREE.Mesh(tailGeo, tailMat);
     tailR.position.set(bW * 0.3, bodyY, -bL * 0.5 - 0.01);
+    tailR.userData.partName = 'rearBumper';
     group.add(tailR);
 
     // ── Headlights ─────────────────────────────────────────────────
@@ -560,9 +593,11 @@ export function createCarModel(carData, isPlayer = false) {
     const headMat = new THREE.MeshLambertMaterial({ color: 0xffffcc, emissive: 0x333300 });
     const headL = new THREE.Mesh(headGeo, headMat);
     headL.position.set(-bW * 0.3, bodyY, bL * 0.5 + 0.01);
+    headL.userData.partName = 'frontBumper';
     group.add(headL);
     const headR = new THREE.Mesh(headGeo, headMat);
     headR.position.set(bW * 0.3, bodyY, bL * 0.5 + 0.01);
+    headR.userData.partName = 'frontBumper';
     group.add(headR);
 
     // Player highlight ring

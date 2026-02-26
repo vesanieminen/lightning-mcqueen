@@ -4,6 +4,16 @@ import * as THREE from 'three';
 const CAR_HALF_WIDTH = 1.1;   // ~body 2.0 + wheel overhang
 const CAR_HALF_LENGTH = 2.1;  // ~body 4.0 / 2 + bumper clearance
 
+// Parts removed at each damage stage (3 hits to destroy)
+const DAMAGE_STAGES = [
+    // Hit 1 — outer accessories fly off
+    ['spoiler', 'rearBumper', 'frontBumper'],
+    // Hit 2 — doors, hood, windshield ripped away
+    ['doorLeft', 'doorRight', 'hood', 'windshield'],
+    // Hit 3 — final destruction (roof + full explosion)
+    ['roof'],
+];
+
 // Racing state for a single car (player or AI)
 export class CarRacer {
     static debugColliders = false;
@@ -52,6 +62,11 @@ export class CarRacer {
         this.jumpVelocity = 0;
         this.jumpHeight = 0;
         this.isAirborne = false;
+
+        // Progressive damage system — random toughness per car
+        // 0 = tough (3 hits), 1 = medium (2 hits), 2 = fragile (1 hit instant break)
+        this.damageLevel = Math.floor(Math.random() * DAMAGE_STAGES.length);
+        this.maxDamage = DAMAGE_STAGES.length; // always 3 stages total
 
         this.updatePosition();
     }
@@ -230,6 +245,41 @@ export class CarRacer {
 
     getEffectiveDistance() {
         return this.lap + (this.trackProgress % 1);
+    }
+
+    // Apply one hit of progressive damage.
+    // Returns { removedParts, fullyDestroyed }
+    takeDamage() {
+        if (this.destroyed) return { removedParts: [], fullyDestroyed: false };
+
+        const stageIndex = this.damageLevel;
+        this.damageLevel++;
+
+        // Final stage — remove last parts then fully destroy
+        const isFinalHit = this.damageLevel >= this.maxDamage;
+
+        // Remove all children matching any partName in this stage
+        const partNames = DAMAGE_STAGES[stageIndex] || [];
+        const removedParts = [];
+
+        for (let i = this.model.children.length - 1; i >= 0; i--) {
+            const child = this.model.children[i];
+            if (child.userData && partNames.includes(child.userData.partName)) {
+                const worldPos = new THREE.Vector3();
+                child.getWorldPosition(worldPos);
+                removedParts.push({
+                    position: worldPos,
+                    geometry: child.geometry,
+                    color: child.material ? child.material.color.getHex() : 0x888888,
+                });
+                child.visible = false;
+            }
+        }
+
+        // Slow the car with each hit
+        this.speed *= 0.7;
+
+        return { removedParts, fullyDestroyed: isFinalHit };
     }
 
     // Create a wireframe box showing the collision bounds (child of car model)

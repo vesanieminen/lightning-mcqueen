@@ -335,23 +335,35 @@ class Game {
         // Resolve car-to-car collisions
         const { playerHit, explodedRacers } = CarRacer.resolveCollisions(this.allRacers);
 
-        // Only explode + destroy on a genuinely hard ram (fast + steering into them).
+        // Only damage on a genuinely hard ram (fast + steering into them).
         // All other collisions are just bumps with a tap sound.
         if (explodedRacers.length > 0) {
             const steer = this.controls ? Math.abs(this.controls.getSteerInput()) : 0;
-            const isHardHit = this.playerRacer.speed > this.playerRacer.maxSpeed * 0.9
-                           && steer > 0.5;
+            const isHardHit = this.playerRacer.speed > this.playerRacer.maxSpeed * 0.7
+                           && steer > 0.3;
 
             if (isHardHit) {
-                playCrashSound();
                 for (const racer of explodedRacers) {
                     const carDef = CAR_DATA.find(c => c.id === racer.model.userData.carId);
                     const color = carDef ? carDef.bodyColor : 0x888888;
-                    this.debrisManager.explode(racer.model.position.clone(), racer.model.rotation.y, color);
-                    racer.destroyed = true;
-                    racer.model.visible = false;
-                    racer.speed = 0;
-                    setTimeout(() => playLapSound(), 300);
+
+                    const { removedParts, fullyDestroyed } = racer.takeDamage();
+
+                    if (fullyDestroyed) {
+                        // Final hit — full explosion
+                        playCrashSound();
+                        this.debrisManager.explode(racer.model.position.clone(), racer.model.rotation.y, color);
+                        racer.destroyed = true;
+                        racer.model.visible = false;
+                        racer.speed = 0;
+                        setTimeout(() => playLapSound(), 300);
+                    } else {
+                        // Partial damage — parts fly off
+                        playHitSound();
+                        for (const part of removedParts) {
+                            this.debrisManager.spawnPart(part.position, racer.model.rotation.y, part.color);
+                        }
+                    }
                 }
 
                 // Win condition: all AI cars destroyed
