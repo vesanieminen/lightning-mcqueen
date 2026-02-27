@@ -31,17 +31,29 @@ export class AIDriver {
         const speedScale = 565 / racer.curveLength;
         racer.maxSpeed = 0.0015 * this.speedFactor * speedScale;
 
-        // Periodic slowdowns
+        // Periodic slowdowns (skip in speed zones to avoid falling off loops)
+        let inSpeedZone = false;
+        if (racer.frames.speedZones) {
+            const progress = ((racer.trackProgress % 1) + 1) % 1;
+            for (const zone of racer.frames.speedZones) {
+                if (progress >= zone.from && progress <= zone.to) { inSpeedZone = true; break; }
+            }
+        }
+
         this.slowdownTimer += dt;
-        if (this.isSlowingDown) {
-            racer.speed *= Math.pow(0.97, step); // brake (frame-rate independent)
-            if (this.slowdownTimer > this.slowdownDuration) {
-                this.isSlowingDown = false;
+        if (!inSpeedZone) {
+            if (this.isSlowingDown) {
+                racer.speed *= Math.pow(0.97, step); // brake (frame-rate independent)
+                if (this.slowdownTimer > this.slowdownDuration) {
+                    this.isSlowingDown = false;
+                    this.slowdownTimer = 0;
+                }
+            } else if (this.slowdownTimer > this.slowdownInterval) {
+                this.isSlowingDown = true;
                 this.slowdownTimer = 0;
             }
-        } else if (this.slowdownTimer > this.slowdownInterval) {
-            this.isSlowingDown = true;
-            this.slowdownTimer = 0;
+        } else {
+            this.isSlowingDown = false; // force full speed in speed zones
         }
 
         // Lane changing

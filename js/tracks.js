@@ -81,6 +81,24 @@ export const TRACK_DATA = [
         buildScenery: buildFloridaScenery,
         ramps: [{ t: 0.3, side: 1 }, { t: 0.7, side: -1 }],
     },
+    {
+        id: 'f1circuit',
+        name: 'Grand Prix Circuit',
+        description: 'Loops and corkscrews — hold on tight!',
+        icon: '🏎️',
+        laps: 2,
+        roadWidth: 14,
+        maxBankAngle: 0,
+        groundSize: 1200,
+        groundColor: 0x3a7d2a,
+        buildTrack: buildF1CircuitTrack,
+        buildScenery: buildF1CircuitScenery,
+        ramps: [],
+        twistZones: [
+            { from: 0.30, to: 0.42, twist: Math.PI * 2 },    // loop
+            { from: 0.56, to: 0.68, twist: Math.PI * 2 },    // corkscrew
+        ],
+    },
 ];
 
 // Terrain height cache for scenery/debris placement
@@ -109,7 +127,8 @@ function cacheTerrainSamples(curve) {
 // Compute consistent track directions for a 3D curve.
 // Uses arc-length parameterization (getTangentAt) for uniform speed across the track.
 // Stores both flat (XZ-projected) tangents for binormals/banking and full 3D tangents for pitch.
-function computeTrackFrames(curve, segments, maxBankAngle = 0) {
+// When twistZones are provided, also computes full 3D normals and binormals for loops/corkscrews.
+function computeTrackFrames(curve, segments, maxBankAngle = 0, twistZones = null) {
     const tangents = [];
     const tangents3D = []; // full 3D tangent for car pitch calculation
     const binormals = []; // "right" vectors perpendicular to track in XZ plane
@@ -171,7 +190,72 @@ function computeTrackFrames(curve, segments, maxBankAngle = 0) {
         for (let i = 0; i <= segments; i++) bankAngles.push(0);
     }
 
-    return { tangents, tangents3D, binormals, bankAngles };
+    // Compute 3D normal and binormal frames (for loops/corkscrews with twist)
+    const normals3D = [];
+    const binormals3D = [];
+    const twistAngles = []; // total twist angle per segment (bank + twist zones)
+
+    for (let i = 0; i <= segments; i++) {
+        const t = i / segments;
+        let twistAngle = bankAngles[i];
+
+        // Add twist from twist zones
+        let inTwistZone = false;
+        if (twistZones) {
+            for (const zone of twistZones) {
+                if (t >= zone.from && t <= zone.to) {
+                    inTwistZone = true;
+                    const zoneFrac = (t - zone.from) / (zone.to - zone.from);
+                    // Smoothstep: cumulative 0→1 rotation with gentle entry/exit
+                    const easedFrac = zoneFrac * zoneFrac * (3 - 2 * zoneFrac);
+                    // Accumulate twist angle (full rotation over the zone)
+                    twistAngle += easedFrac * zone.twist;
+                    // Override banking in twist zones (twist takes over)
+                    twistAngle -= bankAngles[i];
+                }
+            }
+        }
+
+        twistAngles.push(twistAngle);
+
+        // Compute proper orthonormal frame from 3D tangent
+        const tan3D = tangents3D[i].clone().normalize();
+
+        // Build base frame perpendicular to 3D tangent
+        // Use world-up reference, with fallback for vertical tangent
+        const worldUp = Math.abs(tan3D.y) > 0.99
+            ? new THREE.Vector3(0, 0, 1)
+            : new THREE.Vector3(0, 1, 0);
+        const baseRight = new THREE.Vector3().crossVectors(worldUp, tan3D).normalize();
+        const baseUp = new THREE.Vector3().crossVectors(tan3D, baseRight).normalize();
+
+        // Inside twist zones: rotate around 3D tangent for barrel roll / loop
+        // Outside twist zones: use flat tangent axis to avoid hill-induced tilt
+        let right3D, up3D;
+        if (inTwistZone) {
+            const q = new THREE.Quaternion().setFromAxisAngle(tan3D, twistAngle);
+            right3D = baseRight.clone().applyQuaternion(q);
+            up3D = baseUp.clone().applyQuaternion(q);
+        } else {
+            // For flat sections, just use XZ-based right + (0,1,0) up with banking
+            const flatTan = new THREE.Vector3(tan3D.x, 0, tan3D.z).normalize();
+            const flatRight = new THREE.Vector3(flatTan.z, 0, -flatTan.x);
+            const flatUp = new THREE.Vector3(0, 1, 0);
+            if (Math.abs(twistAngle) > 0.001) {
+                const q = new THREE.Quaternion().setFromAxisAngle(flatTan, twistAngle);
+                right3D = flatRight.clone().applyQuaternion(q);
+                up3D = flatUp.clone().applyQuaternion(q);
+            } else {
+                right3D = flatRight;
+                up3D = flatUp;
+            }
+        }
+
+        binormals3D.push(right3D);
+        normals3D.push(up3D);
+    }
+
+    return { tangents, tangents3D, binormals, bankAngles, normals3D, binormals3D, twistAngles };
 }
 
 // Oval track — two gentle hills on the long straights
@@ -383,6 +467,129 @@ function buildFlorida500Track() {
 
     const points = pts.map(([x, z, y]) => new THREE.Vector3(x, y, z));
     return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
+}
+
+// Grand Prix Circuit: Long F1 track with loop and corkscrew
+function buildF1CircuitTrack() {
+    const pts = [
+        // Start/finish straight
+        [0, 200, 0],
+        [40, 200, 0],
+        [80, 200, 0],
+        [120, 195, 0],
+        // Turn 1 (right-hander)
+        [160, 175, 0],
+        [180, 145, 0],
+        // Fast S-curves
+        [175, 110, 0],
+        [160, 80, 0],
+        [170, 50, 0],
+        [185, 20, 0],
+        // Chicane
+        [180, -10, 0],
+        [165, -30, 0],
+
+        // LOOP APPROACH - ramp up
+        [140, -55, 4],
+        [130, -75, 12],
+        // Loop top (track goes vertical then inverted)
+        [130, -95, 28],    // climbing up
+        [130, -110, 38],   // top of loop
+        [130, -125, 28],   // coming back down
+        [130, -140, 12],
+        [130, -155, 4],
+        [125, -170, 0],
+
+        // Back straight
+        [100, -185, 0],
+        [60, -190, 0],
+        [20, -185, 0],
+
+        // CORKSCREW APPROACH
+        [-20, -170, 4],
+        [-50, -155, 14],
+        // Corkscrew section (straight line, track barrel-rolls)
+        [-80, -140, 24],
+        [-110, -125, 30],
+        [-140, -110, 24],
+        [-165, -95, 14],
+        [-180, -80, 4],
+
+        // Final sweeper back to start
+        [-190, -50, 0],
+        [-185, -10, 0],
+        [-170, 30, 0],
+        [-140, 60, 0],
+        [-100, 80, 0],
+        [-60, 100, 0],
+
+        // Penultimate curve
+        [-80, 140, 0],
+        [-70, 170, 0],
+        [-40, 195, 0],
+    ];
+
+    const points = pts.map(([x, z, y]) => new THREE.Vector3(x, y, z));
+    return new THREE.CatmullRomCurve3(points, true, 'catmullrom', 0.5);
+}
+
+function buildF1CircuitScenery(curve, roadWidth, frames) {
+    const scenery = new THREE.Group();
+
+    // Modern grandstands
+    const standColors = [0x5577AA, 0x557799, 0x778899, 0x6688AA];
+    placeScenery(60, curve, frames, roadWidth, 15, 20, (pos) => {
+        const height = 6 + Math.random() * 12;
+        const width = 4 + Math.random() * 6;
+        const geo = new THREE.BoxGeometry(width, height, 4);
+        const mat = new THREE.MeshLambertMaterial({ color: standColors[Math.floor(Math.random() * standColors.length)] });
+        const stand = new THREE.Mesh(geo, mat);
+        stand.position.set(pos.x, pos.y + height / 2, pos.z);
+        stand.rotation.y = Math.random() * Math.PI;
+        stand.castShadow = true;
+        scenery.add(stand);
+        return stand;
+    });
+
+    // Sponsor boards
+    const boardColors = [0xCC2244, 0x2244CC, 0xFFCC00, 0x22CC44, 0xFF6600];
+    placeScenery(30, curve, frames, roadWidth, 5, 3, (pos) => {
+        const boardGeo = new THREE.BoxGeometry(4, 2, 0.1);
+        const boardMat = new THREE.MeshLambertMaterial({ color: boardColors[Math.floor(Math.random() * boardColors.length)] });
+        const board = new THREE.Mesh(boardGeo, boardMat);
+        board.position.set(pos.x, pos.y + 2, pos.z);
+        board.rotation.y = Math.random() * Math.PI;
+        scenery.add(board);
+        return board;
+    });
+
+    // Trees along the track
+    const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5B3A1A });
+    const leafMat = new THREE.MeshLambertMaterial({ color: 0x2B8A3E });
+    placeScenery(40, curve, frames, roadWidth, 12, 35, (pos) => {
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, 4, 6), trunkMat);
+        trunk.position.set(pos.x, pos.y + 2, pos.z);
+        scenery.add(trunk);
+
+        const canopy = new THREE.Mesh(new THREE.SphereGeometry(2, 8, 6), leafMat);
+        canopy.position.set(pos.x, pos.y + 5, pos.z);
+        canopy.castShadow = true;
+        scenery.add(canopy);
+        return trunk;
+    });
+
+    // Sky
+    const skyGeo = new THREE.SphereGeometry(580, 32, 16);
+    const skyMat = new THREE.MeshBasicMaterial({ color: 0x5588CC, side: THREE.BackSide });
+    scenery.add(new THREE.Mesh(skyGeo, skyMat));
+
+    const sunGeo = new THREE.SphereGeometry(12, 16, 16);
+    const sunMat = new THREE.MeshBasicMaterial({ color: 0xFFEE88 });
+    const sun = new THREE.Mesh(sunGeo, sunMat);
+    sun.position.set(-200, 350, 100);
+    scenery.add(sun);
+
+    return scenery;
 }
 
 // Helper: check if a position is too close to any part of the road
@@ -626,15 +833,23 @@ function buildFloridaScenery(curve, roadWidth, frames) {
 }
 
 // Build elevation-aware terrain that follows track hills
-function buildTerrain(curve, groundSize, groundColor) {
+function buildTerrain(curve, groundSize, groundColor, twistZones) {
     const subdivisions = 60;
     const geo = new THREE.PlaneGeometry(groundSize, groundSize, subdivisions, subdivisions);
     geo.rotateX(-Math.PI / 2);
 
-    // Sample track heights at intervals
+    // Sample track heights at intervals, marking twist zone segments
     const trackSamples = [];
     for (let i = 0; i < 200; i++) {
-        trackSamples.push(curve.getPointAt(i / 200));
+        const t = i / 200;
+        const p = curve.getPointAt(t);
+        let inTwist = false;
+        if (twistZones) {
+            for (const zone of twistZones) {
+                if (t >= zone.from - 0.02 && t <= zone.to + 0.02) { inTwist = true; break; }
+            }
+        }
+        trackSamples.push({ x: p.x, y: p.y, z: p.z, inTwist });
     }
 
     const positions = geo.attributes.position;
@@ -645,6 +860,7 @@ function buildTerrain(curve, groundSize, groundColor) {
         // Find nearest track point
         let minDistSq = Infinity;
         let nearestY = 0;
+        let nearTwist = false;
         for (const sample of trackSamples) {
             const dx = x - sample.x;
             const dz = z - sample.z;
@@ -652,6 +868,7 @@ function buildTerrain(curve, groundSize, groundColor) {
             if (distSq < minDistSq) {
                 minDistSq = distSq;
                 nearestY = sample.y;
+                nearTwist = sample.inTwist;
             }
         }
 
@@ -659,7 +876,16 @@ function buildTerrain(curve, groundSize, groundColor) {
         const dist = Math.sqrt(minDistSq);
         const falloffDist = groundSize * 0.3;
         const falloff = Math.max(0, 1 - (dist / falloffDist) * (dist / falloffDist));
-        positions.setY(i, nearestY * falloff - 0.1);
+
+        // Near twist zones (loops/corkscrews), terrain stays at ground level
+        // so the barrel roll / loop is fully above the terrain
+        let terrainY;
+        if (nearTwist) {
+            terrainY = -1.0; // flat ground below the twist structure
+        } else {
+            terrainY = nearestY * falloff - 1.0;
+        }
+        positions.setY(i, terrainY);
     }
 
     geo.computeVertexNormals();
@@ -677,28 +903,50 @@ export function buildTrackMesh(trackData) {
 
     // Compute reliable track frames (not Frenet)
     const maxBank = trackData.maxBankAngle || 0;
-    const frames = computeTrackFrames(curve, 200, maxBank);
+    const twistZones = trackData.twistZones || null;
+    const frames = computeTrackFrames(curve, 200, maxBank, twistZones);
+    // Store speed zones and twist zones on frames for car physics
+    frames.speedZones = trackData.speedZones || null;
+    frames.twistZones = twistZones;
     const roadVertices = [];
     const roadIndices = [];
     const roadUVs = [];
 
+    const hasTwist = !!twistZones;
+
     for (let i = 0; i <= 200; i++) {
         const t = i / 200;
         const point = curve.getPointAt(t);
-        const right = frames.binormals[i];
-        const bank = frames.bankAngles[i];
+        let leftX, leftY, leftZ, rightX, rightY, rightZ;
 
-        const left = point.clone().add(right.clone().multiplyScalar(-roadWidth / 2));
-        const rightPt = point.clone().add(right.clone().multiplyScalar(roadWidth / 2));
+        if (hasTwist) {
+            // Use full 3D binormal for road edge placement (handles loops/corkscrews)
+            const right3D = frames.binormals3D[i];
+            const up3D = frames.normals3D[i];
+            const halfW = roadWidth / 2;
+            // Left edge = center - right * halfW + up * 0.01
+            leftX = point.x - right3D.x * halfW + up3D.x * 0.01;
+            leftY = point.y - right3D.y * halfW + up3D.y * 0.01;
+            leftZ = point.z - right3D.z * halfW + up3D.z * 0.01;
+            // Right edge = center + right * halfW + up * 0.01
+            rightX = point.x + right3D.x * halfW + up3D.x * 0.01;
+            rightY = point.y + right3D.y * halfW + up3D.y * 0.01;
+            rightZ = point.z + right3D.z * halfW + up3D.z * 0.01;
+        } else {
+            const right = frames.binormals[i];
+            const bank = frames.bankAngles[i];
+            const leftPt = point.clone().add(right.clone().multiplyScalar(-roadWidth / 2));
+            const rightPt = point.clone().add(right.clone().multiplyScalar(roadWidth / 2));
+            // Banking: tilt the road cross-section around the center line
+            const bankLift = Math.abs(Math.sin(bank)) * (roadWidth / 2);
+            leftPt.y = point.y + 0.01 + bankLift - Math.sin(bank) * (roadWidth / 2);
+            rightPt.y = point.y + 0.01 + bankLift + Math.sin(bank) * (roadWidth / 2);
+            leftX = leftPt.x; leftY = leftPt.y; leftZ = leftPt.z;
+            rightX = rightPt.x; rightY = rightPt.y; rightZ = rightPt.z;
+        }
 
-        // Banking: tilt the road cross-section around the center line
-        // Raise the center so the low side stays above ground
-        const bankLift = Math.abs(Math.sin(bank)) * (roadWidth / 2);
-        left.y = point.y + 0.01 + bankLift - Math.sin(bank) * (roadWidth / 2);
-        rightPt.y = point.y + 0.01 + bankLift + Math.sin(bank) * (roadWidth / 2);
-
-        roadVertices.push(left.x, left.y, left.z);
-        roadVertices.push(rightPt.x, rightPt.y, rightPt.z);
+        roadVertices.push(leftX, leftY, leftZ);
+        roadVertices.push(rightX, rightY, rightZ);
 
         roadUVs.push(0, t * 20);
         roadUVs.push(1, t * 20);
@@ -716,7 +964,10 @@ export function buildTrackMesh(trackData) {
     roadGeo.setIndex(roadIndices);
     roadGeo.computeVertexNormals();
 
-    const roadMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
+    const roadMat = new THREE.MeshLambertMaterial({
+        color: 0x555555,
+        side: hasTwist ? THREE.DoubleSide : THREE.FrontSide,
+    });
     const roadMesh = new THREE.Mesh(roadGeo, roadMat);
     roadMesh.receiveShadow = true;
     group.add(roadMesh);
@@ -726,9 +977,14 @@ export function buildTrackMesh(trackData) {
     for (let i = 0; i <= 200; i++) {
         const t = i / 200;
         const point = curve.getPointAt(t);
-        const clBank = frames.bankAngles[i];
-        const clBankLift = Math.abs(Math.sin(clBank)) * (roadWidth / 2);
-        centerVertices.push(point.x, point.y + 0.05 + clBankLift, point.z);
+        if (hasTwist) {
+            const up3D = frames.normals3D[i];
+            centerVertices.push(point.x + up3D.x * 0.05, point.y + up3D.y * 0.05, point.z + up3D.z * 0.05);
+        } else {
+            const clBank = frames.bankAngles[i];
+            const clBankLift = Math.abs(Math.sin(clBank)) * (roadWidth / 2);
+            centerVertices.push(point.x, point.y + 0.05 + clBankLift, point.z);
+        }
     }
     const lineGeo = new THREE.BufferGeometry();
     lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(centerVertices, 3));
@@ -747,24 +1003,40 @@ export function buildTrackMesh(trackData) {
         for (let i = 0; i <= 200; i++) {
             const t = i / 200;
             const point = curve.getPointAt(t);
-            const right = frames.binormals[i];
-            const bank = frames.bankAngles[i];
 
-            const inner = point.clone().add(right.clone().multiplyScalar(side * (roadWidth / 2 - 0.2)));
-            const outer = point.clone().add(right.clone().multiplyScalar(side * (roadWidth / 2 + curbWidth)));
-            // Follow road banking for curb Y positions (include bankLift to match road surface)
-            const curbBankLift = Math.abs(Math.sin(bank)) * (roadWidth / 2);
-            inner.y = point.y + 0.03 + curbBankLift + Math.sin(bank) * side * (roadWidth / 2 - 0.2);
-            outer.y = point.y + 0.03 + curbBankLift + Math.sin(bank) * side * (roadWidth / 2 + curbWidth);
+            let innerX, innerY, innerZ, outerX, outerY, outerZ;
+
+            if (hasTwist) {
+                const right3D = frames.binormals3D[i];
+                const up3D = frames.normals3D[i];
+                const innerDist = side * (roadWidth / 2 - 0.2);
+                const outerDist = side * (roadWidth / 2 + curbWidth);
+                innerX = point.x + right3D.x * innerDist + up3D.x * 0.03;
+                innerY = point.y + right3D.y * innerDist + up3D.y * 0.03;
+                innerZ = point.z + right3D.z * innerDist + up3D.z * 0.03;
+                outerX = point.x + right3D.x * outerDist + up3D.x * 0.03;
+                outerY = point.y + right3D.y * outerDist + up3D.y * 0.03;
+                outerZ = point.z + right3D.z * outerDist + up3D.z * 0.03;
+            } else {
+                const right = frames.binormals[i];
+                const bank = frames.bankAngles[i];
+                const inner = point.clone().add(right.clone().multiplyScalar(side * (roadWidth / 2 - 0.2)));
+                const outer = point.clone().add(right.clone().multiplyScalar(side * (roadWidth / 2 + curbWidth)));
+                const curbBankLift = Math.abs(Math.sin(bank)) * (roadWidth / 2);
+                inner.y = point.y + 0.03 + curbBankLift + Math.sin(bank) * side * (roadWidth / 2 - 0.2);
+                outer.y = point.y + 0.03 + curbBankLift + Math.sin(bank) * side * (roadWidth / 2 + curbWidth);
+                innerX = inner.x; innerY = inner.y; innerZ = inner.z;
+                outerX = outer.x; outerY = outer.y; outerZ = outer.z;
+            }
 
             // For the left side (side=-1), swap inner/outer vertex order
             // to fix triangle winding so the face points up
             if (side === 1) {
-                curbVertices.push(inner.x, inner.y, inner.z);
-                curbVertices.push(outer.x, outer.y, outer.z);
+                curbVertices.push(innerX, innerY, innerZ);
+                curbVertices.push(outerX, outerY, outerZ);
             } else {
-                curbVertices.push(outer.x, outer.y, outer.z);
-                curbVertices.push(inner.x, inner.y, inner.z);
+                curbVertices.push(outerX, outerY, outerZ);
+                curbVertices.push(innerX, innerY, innerZ);
             }
 
             // Alternating red/white pattern
@@ -787,7 +1059,10 @@ export function buildTrackMesh(trackData) {
         curbGeo.setIndex(curbIndices);
         curbGeo.computeVertexNormals();
 
-        const curbMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+        const curbMat = new THREE.MeshLambertMaterial({
+            vertexColors: true,
+            side: hasTwist ? THREE.DoubleSide : THREE.FrontSide,
+        });
         const curbMesh = new THREE.Mesh(curbGeo, curbMat);
         curbMesh.receiveShadow = true;
         group.add(curbMesh);
@@ -816,7 +1091,7 @@ export function buildTrackMesh(trackData) {
     const groundSize = trackData.groundSize || 600;
     const groundColor = trackData.groundColor || 0xC4A86B;
     cacheTerrainSamples(curve);
-    const ground = buildTerrain(curve, groundSize, groundColor);
+    const ground = buildTerrain(curve, groundSize, groundColor, trackData.twistZones || null);
     group.add(ground);
 
     // Build invisible walls for track boundaries
@@ -918,6 +1193,7 @@ function buildInvisibleWalls(curve, roadWidth, frames) {
     const wallGroup = new THREE.Group();
     const wallHeight = 3;
     const wallSegments = 200;
+    const hasTwist3D = frames.binormals3D && frames.binormals3D.length > 0;
 
     for (const side of [-1, 1]) {
         const wallVertices = [];
@@ -926,12 +1202,23 @@ function buildInvisibleWalls(curve, roadWidth, frames) {
         for (let i = 0; i <= wallSegments; i++) {
             const t = i / wallSegments;
             const point = curve.getPointAt(t);
-            const right = frames.binormals[i];
-            const offset = right.clone().multiplyScalar(side * (roadWidth / 2 + 0.5));
-            const base = point.clone().add(offset);
 
-            wallVertices.push(base.x, point.y, base.z);
-            wallVertices.push(base.x, point.y + wallHeight, base.z);
+            if (hasTwist3D) {
+                const right3D = frames.binormals3D[i];
+                const up3D = frames.normals3D[i];
+                const wallDist = side * (roadWidth / 2 + 0.5);
+                const baseX = point.x + right3D.x * wallDist;
+                const baseY = point.y + right3D.y * wallDist;
+                const baseZ = point.z + right3D.z * wallDist;
+                wallVertices.push(baseX, baseY, baseZ);
+                wallVertices.push(baseX + up3D.x * wallHeight, baseY + up3D.y * wallHeight, baseZ + up3D.z * wallHeight);
+            } else {
+                const right = frames.binormals[i];
+                const offset = right.clone().multiplyScalar(side * (roadWidth / 2 + 0.5));
+                const base = point.clone().add(offset);
+                wallVertices.push(base.x, point.y, base.z);
+                wallVertices.push(base.x, point.y + wallHeight, base.z);
+            }
 
             if (i < wallSegments) {
                 const idx = i * 2;

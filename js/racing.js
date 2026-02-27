@@ -81,54 +81,92 @@ export class CarRacer {
         const idx1 = (idx0 + 1) % 201;
         const frac = rawIdx - Math.floor(rawIdx);
 
-        // Lerp right vector and tangent between adjacent frames
-        const right = this.frames.binormals[idx0].clone().lerp(this.frames.binormals[idx1], frac);
-        const tangent = this.frames.tangents[idx0].clone().lerp(this.frames.tangents[idx1], frac);
+        // Use 3D frames for entire lap on tracks with twist zones (smooth transitions)
+        const hasTwist = this.frames.twistZones && this.frames.twistZones.length > 0;
 
-        // Interpolate bank angle
-        const bank0 = this.frames.bankAngles ? this.frames.bankAngles[idx0] : 0;
-        const bank1 = this.frames.bankAngles ? this.frames.bankAngles[idx1] : 0;
-        const bankAngle = bank0 + (bank1 - bank0) * frac;
+        if (hasTwist && !this.isAirborne) {
+            // 3D twist positioning: use full 3D normal/binormal frames
+            const right3D = this.frames.binormals3D[idx0].clone().lerp(this.frames.binormals3D[idx1], frac);
+            const up3D = this.frames.normals3D[idx0].clone().lerp(this.frames.normals3D[idx1], frac);
+            const fwd3D = this.frames.tangents3D[idx0].clone().lerp(this.frames.tangents3D[idx1], frac);
 
-        // Apply lateral offset (right vector points to the right of travel direction)
-        const maxLateral = this.roadWidth / 2 - 1.5;
-        const lateralPos = this.lateralOffset * maxLateral;
-        const offset = right.clone().multiplyScalar(lateralPos);
+            right3D.normalize();
+            up3D.normalize();
+            fwd3D.normalize();
 
-        // Banking: tilt car and adjust Y position based on road bank angle
-        const maxLateralWorld = this.roadWidth / 2 - 1.5;
-        const lateralWorld = this.lateralOffset * maxLateralWorld;
-        // bankLift raises the road center at banked sections so the low side stays above ground
-        const bankLift = Math.abs(Math.sin(bankAngle)) * (this.roadWidth / 2);
-        const bankY = Math.sin(bankAngle) * lateralWorld;
+            const maxLateral = this.roadWidth / 2 - 1.5;
+            const lateralPos = -this.lateralOffset * maxLateral;
 
-        this.model.position.set(
-            point.x + offset.x,
-            point.y + 0.2 + bankLift + bankY + this.jumpHeight,
-            point.z + offset.z
-        );
+            // Position = curve point + right * lateral + up * carHeight
+            this.model.position.set(
+                point.x + right3D.x * lateralPos + up3D.x * 0.2,
+                point.y + right3D.y * lateralPos + up3D.y * 0.2,
+                point.z + right3D.z * lateralPos + up3D.z * 0.2
+            );
 
-        // Face the direction of travel, yaw nose into steering direction
-        const angle = Math.atan2(tangent.x, tangent.z);
-        this.model.rotation.y = angle - this.steering * 0.15;
+            // Orientation from frame basis matrix
+            // Add steering yaw: rotate the forward/right vectors slightly around up
+            const steerAngle = -this.steering * 0.15;
+            const cosS = Math.cos(steerAngle);
+            const sinS = Math.sin(steerAngle);
+            const steeredFwd = new THREE.Vector3(
+                fwd3D.x * cosS + right3D.x * sinS,
+                fwd3D.y * cosS + right3D.y * sinS,
+                fwd3D.z * cosS + right3D.z * sinS
+            ).normalize();
+            const steeredRight = new THREE.Vector3(
+                right3D.x * cosS - fwd3D.x * sinS,
+                right3D.y * cosS - fwd3D.y * sinS,
+                right3D.z * cosS - fwd3D.z * sinS
+            ).normalize();
 
-        // Pitch: airborne cars tilt based on jump velocity, grounded cars follow terrain
-        if (this.isAirborne) {
-            this.model.rotation.x = -Math.atan2(this.jumpVelocity * 0.04, 1);
-            this.model.rotation.z = 0; // no banking in air
+            const m = new THREE.Matrix4();
+            m.makeBasis(steeredRight, up3D, steeredFwd);
+            this.model.quaternion.setFromRotationMatrix(m);
         } else {
-            if (this.frames.tangents3D) {
-                const t3d0 = this.frames.tangents3D[idx0];
-                const t3d1 = this.frames.tangents3D[idx1];
-                const ty = t3d0.y + (t3d1.y - t3d0.y) * frac;
-                const txz0 = Math.sqrt(t3d0.x * t3d0.x + t3d0.z * t3d0.z);
-                const txz1 = Math.sqrt(t3d1.x * t3d1.x + t3d1.z * t3d1.z);
-                const txz = txz0 + (txz1 - txz0) * frac;
-                this.model.rotation.x = -Math.atan2(ty, txz);
-            }
+            // Standard flat positioning (original code path)
+            const right = this.frames.binormals[idx0].clone().lerp(this.frames.binormals[idx1], frac);
+            const tangent = this.frames.tangents[idx0].clone().lerp(this.frames.tangents[idx1], frac);
 
-            // Roll car to match road banking
-            this.model.rotation.z = -bankAngle;
+            const bank0 = this.frames.bankAngles ? this.frames.bankAngles[idx0] : 0;
+            const bank1 = this.frames.bankAngles ? this.frames.bankAngles[idx1] : 0;
+            const bankAngle = bank0 + (bank1 - bank0) * frac;
+
+            const maxLateral = this.roadWidth / 2 - 1.5;
+            const lateralPos = this.lateralOffset * maxLateral;
+            const offset = right.clone().multiplyScalar(lateralPos);
+
+            const maxLateralWorld = this.roadWidth / 2 - 1.5;
+            const lateralWorld = this.lateralOffset * maxLateralWorld;
+            const bankLift = Math.abs(Math.sin(bankAngle)) * (this.roadWidth / 2);
+            const bankY = Math.sin(bankAngle) * lateralWorld;
+
+            this.model.position.set(
+                point.x + offset.x,
+                point.y + 0.2 + bankLift + bankY + this.jumpHeight,
+                point.z + offset.z
+            );
+
+            // Use Euler rotation for standard sections
+            this.model.rotation.order = 'YXZ';
+            const angle = Math.atan2(tangent.x, tangent.z);
+            this.model.rotation.y = angle - this.steering * 0.15;
+
+            if (this.isAirborne) {
+                this.model.rotation.x = -Math.atan2(this.jumpVelocity * 0.04, 1);
+                this.model.rotation.z = 0;
+            } else {
+                if (this.frames.tangents3D) {
+                    const t3d0 = this.frames.tangents3D[idx0];
+                    const t3d1 = this.frames.tangents3D[idx1];
+                    const ty = t3d0.y + (t3d1.y - t3d0.y) * frac;
+                    const txz0 = Math.sqrt(t3d0.x * t3d0.x + t3d0.z * t3d0.z);
+                    const txz1 = Math.sqrt(t3d1.x * t3d1.x + t3d1.z * t3d1.z);
+                    const txz = txz0 + (txz1 - txz0) * frac;
+                    this.model.rotation.x = -Math.atan2(ty, txz);
+                }
+                this.model.rotation.z = -bankAngle;
+            }
         }
 
         // Spin wheels (rolling)
@@ -229,6 +267,8 @@ export class CarRacer {
                 }
             }
         }
+
+        // Cars always stick to the road in twist zones (no fall-off)
 
         // Lap detection
         if (this.lastProgress > 0.9 && currentProgress < 0.1) {
@@ -604,23 +644,28 @@ export class RaceCamera {
         if (!playerRacer) return;
 
         const carPos = playerRacer.model.position.clone();
-        const carRotation = playerRacer.model.rotation.y;
+
+        // Get the car's local forward and up from its quaternion
+        const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(playerRacer.model.quaternion);
+        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(playerRacer.model.quaternion);
 
         // Flip camera direction when looking back
         const dir = lookBack ? 1 : -1;
-        const cameraOffset = new THREE.Vector3(
-            dir * Math.sin(carRotation) * 12,
-            7,
-            dir * Math.cos(carRotation) * 12
-        );
+
+        // Position camera behind (local -Z) and above (local +Y) the car
+        const cameraOffset = new THREE.Vector3()
+            .addScaledVector(forward, dir * 12)
+            .addScaledVector(up, 7);
 
         this.targetPosition.copy(carPos).add(cameraOffset);
-        this.targetLookAt.copy(carPos).add(new THREE.Vector3(0, 1, 0));
+        this.targetLookAt.copy(carPos).add(up);
 
-        // Split lerp: faster Y tracking to prevent camera clipping through hills
-        this.camera.position.x += (this.targetPosition.x - this.camera.position.x) * this.smoothFactor;
-        this.camera.position.z += (this.targetPosition.z - this.camera.position.z) * this.smoothFactor;
-        this.camera.position.y += (this.targetPosition.y - this.camera.position.y) * 0.12;
+        // Faster lerp when car is tilted (corkscrew/loop) for tight camera follow
+        const upDeviation = 1 - Math.abs(up.y);
+        const lerpFactor = this.smoothFactor + upDeviation * 0.25;
+
+        this.camera.position.lerp(this.targetPosition, lerpFactor);
+        this.camera.up.copy(up);
         this.camera.lookAt(this.targetLookAt);
     }
 }
