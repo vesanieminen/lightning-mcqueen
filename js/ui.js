@@ -436,7 +436,7 @@ export function showResults(results, playerCarId, onPlayAgain) {
                     const car = CAR_DATA.find(c => c.id === r.carId);
                     return `<li>
                         <span class="result-pos">${getPositionText(i + 1)}</span>
-                        <canvas class="result-car-canvas" data-car-id="${r.carId}" width="80" height="50"></canvas>
+                        <canvas class="result-car-canvas" data-car-id="${r.carId}" width="60" height="38"></canvas>
                         <span>${car.name}${r.carId === playerCarId ? ' (YOU)' : ''}</span>
                     </li>`;
                 }).join('')}
